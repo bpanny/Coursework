@@ -1,0 +1,192 @@
+---
+title: "M10 Data Analysis - Putting it Together"
+author: "Benjamin Panny"
+date: "12/16/2021"
+output:
+  html_document:
+    df_print: paged
+    toc: yes
+    toc_float: 
+      collapsed: true
+    number_sections: yes
+    fig_caption: yes
+    fig_width: 10
+    fig_height: 6.6
+    toc_depth: '3'
+    code_folding: show
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+library(tidyverse)
+library(gridExtra)
+library(DescTools)
+library(kableExtra)
+load("OPT.RData", verbose=TRUE)
+```
+
+
+# Effect of treatment on preterm birth 
+
+## A Numerical and Visual Summary
+
+```{r group n preterm}
+#numerical summary of preterm status within groups
+kableExtra::kable(xtabs(~ Group + Preterm, data=opt) %>% prop.table(margin = 1) %>% round(4), caption = "Proportion of preterm birth status by group", "simple")
+
+by_group <- group_by(opt, Group)
+count(by_group, Preterm)
+
+
+#Visualization of relationship between preterm birth and treatment group
+plot_data <- opt %>% drop_na(Group, Preterm) %>% 
+  group_by(Group, Preterm) %>% 
+  tally %>% 
+  mutate(percent = n/sum(n))
+ggplot(data = plot_data, aes(x = Group, y = percent)) + 
+  geom_bar(stat="identity", aes(fill = Group)) + 
+  theme(legend.position = "none") + # suppress legend
+  scale_y_continuous(limits=c(0,1)) + # force y-axis to be 0-1
+  facet_wrap(. ~ Preterm) +  # separate by var2
+  geom_text(aes(label = n), vjust = -0.3) + # add counts as text 
+  ggtitle("Proportion of Preterm Births by Group")
+
+```
+
+Perform a hypothesis test to examine if there is an association between preterm birth and treatment group. Using this information, write a conclusion about the relationship between preterm birth and treatment group (including an interpretation of the relevant odds ratio).
+
+## A two-sample Z-test of proportions: Hypotheses and Conditions
+
+To determine whether there is an association between preterm birth and treatment group, we use a two-sample Z-test. The null hypothesis for this test is that the population proportion difference between the two groups is zero, while the alternative hypothesis for this test is that the population proportion difference between the two groups is nonzero
+
+The conditions for this test are met: we assume the two groups form two simple random samples and that they are independent and unrelated. As shown in the numerical summary of this section, successes and failures are greater than five in both samples.
+
+## Two-sample Z-test: P-Value with Interpretation
+
+After removing observations with missing data, the chi-squared value for a 2-sample Z-test for equality of proportions without continuity correction is .3216 - indicating observed proportions not far from expectation. The p-value for this test statistic is .5706, indicating a 57.06% chance of observing the results we do if the population proportions of preterm births of each group are the same and preterm birth is not associated with group.
+
+
+```{r ztest}
+prop.test(x = c(38,44),n=c(353+38,358+44), correct=FALSE)
+orcont <- .0972/.9028
+ortmt <- .1095/.8905
+orcont
+ortmt
+or <- ortmt/orcont
+or
+```
+## Statistical Decision and Conclusion in Context
+Due to a nonstatistically significant p-value for a two-sample z-test, we fail to reject our null hypothesis. We have no evidence to suggest there is an association between treatment group and preterm birth status, as measured by the difference in proportions of preterm births between groups. This insignificant test result indicates taking the odds ratio of 1.14 between the treatment group and control group with a grain of salt. That is, that the treatment group was associated with higher odds of preterm birth than the control group in our sample, but this odds ratio was not statistically significant when tested.
+
+# Effect of age on preterm birth 
+
+## Numerical and Visual Summary
+
+```{r preterm and age}
+#numerical summary of preterm birth and age
+kableExtra::kable(opt %>% group_by(Preterm) %>% 
+  summarize(N = n(),
+            Mean = mean(Age, na.rm=TRUE),
+            SD = sd(Age, na.rm=TRUE), 
+            Median = median(Age, na.rm=TRUE), 
+            IQR = quantile(Age, 0.75, na.rm=TRUE)-quantile(Age, 0.25, na.rm=TRUE),
+            Min = min(Age, na.rm=TRUE),
+            Max = max(Age, na.rm=TRUE)), digits = 2, "simple", caption = "Age Distribution By Preterm Birth Status")
+
+#visualization to examine relationship between
+#preterm birth and maternal age
+ggplot(opt %>% drop_na(Preterm, Age), aes(y=Age, x=Preterm)) + geom_boxplot() + 
+  theme_classic() + ylab("Age (years)")
+
+#calc difference in mean age between preterm and normal term
+mean_age_pt = mean(filter(opt, Preterm == "Y")$Age)
+mean_age_nt = mean(filter(opt, Preterm == "N")$Age)
+mean_age_term_diff = abs(mean_age_pt - mean_age_nt)
+```
+
+
+
+
+## Null and Alternative Hypotheses
+
+The Null Hypothesis is that there is no difference in the true population mean age for those in the who do and do not have preterm births. The alternative hypothesis is that there is a difference in the true population mean age for those in who do and do not have preterm births.
+
+Given that we want to use an independent samples t-test, but are unsure of whether the variances of our samples are equal or not, we will perform an F test for equality of variances. The null hypothesis for this test is that the variances are equal. The alternative hypothesis is that they are not equal.
+
+## Conditions for an F test for equality of variances and the F statistic and p-value with interpretation
+We will assume the sample is a simple random sample from the two populations of those who do and do not have preterm births. We also know the two groups are independent (Preterm Birth Status categories are mutually exclusive). The outcome data of Age in years is also normal.
+
+```{r f eq v}
+topt <- as.tibble(opt) %>% drop_na()
+qqnorm(topt$Age, ylab = "Headache Severity Score Difference")
+qqline(topt$Age)
+var.test(Age ~ Preterm, data = topt, alternative = "two.sided", conf.level = 0.95)
+```
+The F statistic for the F test for equality of variances is .91747, indicating the ratio of the variances of those who did and did not give preterm birth. The p-value of .5841 indicates a 58.41% chance of observing this variance ratio if the true ratio is equal to 1. Therefore, we do not reject the null hypothesis that the variances are equal - we have no evidence to support the alternative.
+
+## Conditions for Two sample T-Test with Equal Variances
+
+We assume a simple random sample from the two populations (those who do and do not give births). We also assume our 2 groups are independent (no spouses, siblings, etc.). We have more than 30 observations for each group. We tested the equal variances assumption in the last section 
+
+## Two sample T-statistic, P-Value, and Confidence Interval with Interpretation
+
+The two-sided two sample t statistic for equal variances that we observe is -2.1478, indicating a larger mean age in the preterm group compared to the mean age in the non-preterm group. The p-value was .0321, which indicates a less than 3.21% chance of observing the difference in means we observed if the true difference is 0.
+
+The two-sided 95% confidence interval for the between group mean differences is (-2.778 -.124). This is to say that if we repeated the same procedures, the interval given by the data would capture the true difference between groups 95% of the time and we are therefore 95% confident that the true difference is between -2.778 and -.124.
+
+```{r ptt}
+t.test(topt$Age~ topt$Preterm, var.equal = TRUE, alternative = "two.sided", conf.level=0.95)
+
+```
+Create an appropriate visualization and numerical summary to examine the relationship between preterm birth and pregnant individual's age. Perform a hypothesis test to examine if there is a significant difference in the mean (or median) age for those who did and did not end up delivering preterm. Using this information, write a conclusion about the relationship between age and preterm birth (including the difference in the estimated means/medians). 
+
+## Statistical Decision and Conclusion in Context
+
+Due to a statistically significant p-value, we reject the null hypothesis that the mean age of those who give preterm birth and those who give non-preterm birth are the same. We have evidence to suggest there is a difference in mean age between these groups. Specifically, our results suggest this difference is driven in the population by the fact that those who give preterm births tend to be older on average than those who give non-preterm birth.
+
+# Effect of age on infant birthweight
+
+## Numerical and Visual Summary
+
+```{r birthweight and age}
+#numerical - birthweight and age correlation
+age_bw_cor = cor(opt$Age, opt$Birthweight, use="pairwise.complete.obs")
+age_bw_cor
+qqplot(topt$Age, topt$Birthweight, ylab = "Birthweight (Grams)", xlab = "Age (years)", main = "Normality of Birthweight by Age")
+qqline(topt$Birthweight)
+topt %>% 
+  ggplot(aes(x = Age, y = Birthweight)) +
+  geom_point(size=3, stroke=1) + ylab("Birthweight (grams)") + xlab("Age (years)") + ggtitle("Scatterplot of Age and Birthweight (r = .038)")+geom_smooth(method="lm") + theme_classic()
+```
+
+Create an appropriate visualization and numerical summary to examine the relationship between infant's birthweight and pregnant individual's age. Perform a hypothesis test to examine if there is a significant linear relationship between pregnant individual's age (predictor) and infant's birthweight (outcome). Using this information, write a conclusion about the relationship between age and birthweigth  (including an estimated impact of age on birthweight).
+
+## Interpretation of the Fitted Linear Regression Model of Patients who had Tracheal Intubation Completed on the First Attempt
+
+We seek to estimate the change in the expected (average) value of birthweight (in grams) per one unit (year) increase in maternal age.
+
+In our sample, we observe an intercept coefficient of 3120.5, indicating a average birthweight in grams 3120.5 if the mother is a 0 year old. However, this is not particularly useful since this extrapolates below any observed values for age in our dataset as well as the realm of possibility for maternal age. We also observed a Beta coefficient for Age of 4.797 This indicates a 4.797 gram increase in the expected value (average) of birthweight per one year increase in maternal age. The 95% confidence interval for this slope is (-2.82, 12.41). This is to say we are 95% confident our observed interval captures the true linear relationship (slope), a confidence level we derive from our random interval (constructed from our random sample) capturing the true parameter 95% of the time.
+
+We perform a one-sample t-test on the slope to determine whether the relationship between age and birthweight is statistically significant in our sample. We do this assuming no multiple observations and no patients being related. As can be seen in the scatterplot in the previous section, the relationship between birthweight and age in this sample is linear and has no drastic differences in variance of birthweight for all values of age. As can be seen in Figure 4, birthweight is approximately normal by values of age.
+
+For the null hypothesis that the slope is equal to zero (and the alternative hypothesis it is not equal to zero), we observe a T-statistic of 1.237, indicating an estimated slope greater than the standard error of the estimate. We observe a p-value of .217, indicating a 21.7% chance of observing the slope we do if the true value is zero. Thus we do not have evidence to reject the null hypothesis.
+
+The coefficient of determination for Age is .00212, indicating age explains .2% of the total variance in birthweight in our sample.
+
+
+```{r linear regression}
+model1 <- lm(Birthweight ~ Age, data=topt)
+summary(model1)
+confint(model1)
+```
+The average birthweight for 40 year-olds given our model is 3312.36 grams
+
+```{r estimate}
+matrix_coef <- summary(lm(Birthweight ~ Age, data=topt))$coefficients #extract coef
+my_estimates <- matrix_coef[ , 1] #extract estimates
+as.numeric(my_estimates[2])*40+as.numeric(my_estimates[1])
+```
+
+## Statistical Decision and Conclusion in Context
+
+Due to a nonstatistically significant p-value for the slope between age and birthweight, we do not reject the null hypothesis that there is no linear relationship between age and birthweight. We do not have evidence to suggest that a nonzero linear relationship between age and birthweight exists. Given these statistical results, we conclude no relationship between birthweight and age.

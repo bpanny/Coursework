@@ -1,0 +1,228 @@
+---
+title: "M8 Data Analysis - ANOVA"
+author: "Benjamin Panny"
+date: 11/9/2021
+output:
+  html_document:
+    df_print: paged
+    toc: yes
+    toc_float: 
+      collapsed: true
+    number_sections: yes
+    fig_caption: yes
+    fig_width: 10
+    fig_height: 6.6
+    toc_depth: '3'
+    code_folding: show
+---
+
+```{r setup, include=FALSE}
+require(knitr)
+# Set so that long lines in R will be wrapped:
+opts_chunk$set(tidy.opts=list(width.cutoff=100),tidy=TRUE, echo = TRUE)
+
+#knitr::opts_chunk$set(echo = TRUE)
+library(tidyverse)
+library(DescTools)
+library(gridExtra)
+library(kableExtra)
+library(car)
+library(emmeans)
+load("hsb2.RData", verbose=TRUE)
+colnames(hsb2)[6] <- "Program"
+colnames(hsb2)[4] <- "SES"
+hsb2$Program[which(hsb2$Program=='academic')] <- 'Academic'
+hsb2$Program[which(hsb2$Program=='general')] <- 'General'
+hsb2$Program[which(hsb2$Program=='vocation')] <- 'Vocation'
+# ra$Biologics[which(ra$Biologics==1)] <- "Receiving Treatment"
+# ra$Biologics[which(ra$Biologics==0)] <- "Not Receiving Treatment"
+# ra$CDAI_YN[which(ra$CDAI_YN==1)] <- "CDAI not measured"
+# ra$CDAI_YN[which(ra$CDAI_YN==2)] <- "CDAI measured"
+```
+
+# Science Scores 
+
+Research question: Are the average scores for the science subsection of the standardized tests different by type of academic program? If so, how?
+
+Perform a one-way ANOVA to answer the research question using a 0.05 overall significance level. Use the variables science and prog.
+
+## Numerical and Visual Summary
+
+```{r num and vis p1}
+
+by_group <- group_by(hsb2, Program)
+
+kableExtra::kable(summarize(by_group, nNA = sum(is.na(science)), mean = mean(science, na.rm=TRUE),SD = sd(science, na.rm=TRUE), 
+              median = median(science, na.rm=TRUE), 
+              IQR = quantile(science, 0.75, na.rm=TRUE)-quantile(science, 0.25, na.rm=TRUE),
+              min = min(science, na.rm=TRUE),
+              max = max(science, na.rm=TRUE), 
+              n = length(science)), digits = 3, "simple", caption="Table 1: Numerical summary of science scores by Program" )
+
+
+f <- ggplot(by_group %>% drop_na(Program),aes(x = Program, y = science, na.rm=TRUE))
+
+
+f + geom_boxplot() + xlab("Program") + ylab("Science Scores") +ggtitle("Figure 1: Boxplot of Science Scores by Program")
+
+ggplot(hsb2 %>% drop_na(Program,science), aes(x=science)) + geom_histogram(binwidth=5,fill='red',color='black') + facet_wrap(~Program) + theme_classic() + xlab("Science Score") + ggtitle("Figure 2: Histogram of Science Score by Program")
+
+hsbac <- filter(hsb2,Program=="Academic")
+hsbvo <- filter(hsb2,Program=="Vocation")
+hsbgen <- filter(hsb2,Program=="General")
+qqnorm(hsbac$science, ylab = "Science Score for Academic Program")
+qqline(hsbac$science)
+qqnorm(hsbvo$science, ylab = "Science Score for Vocation Program")
+qqline(hsbvo$science)
+qqnorm(hsbgen$science, ylab = "Science Score for General Program")
+qqline(hsbgen$science)
+
+```
+
+## Null and Alternative Hypotheses
+
+The null hypothesis is that the population mean science score for each academic program is the same as the others.
+
+The alternative hypothesis is that there is at least one population mean science score from an academic program that is different from the mean of one of the other programs.
+
+## Conditions for a One-Way Analysis of Variance (ANOVA)
+
+We will assume the academic program student populations are independent of one another and that the students selected from each group were randomly sampled. The sample from each population is greater than 30 and the sample standard deviations are roughly equal, so we'll assume the population variances are equal
+
+## One-way ANOVA and P-value with Interpretation
+
+The F statistic is 8.128, indicating a difference between between group variation and within group variation of science scores. The p-value is 0.0004,  which indicates a .04% chance of observing the ratio of between/within-group variance we observed if the population mean science score of each group is the same.
+
+Post-hoc Comparisons reveal significant differences between the academic and vocation programs (t(197) = 4.004; p = .0003) and the general and vocation programs (t(197) = 2.658; p = 0.0255), but no significant difference between the academic and general program (t(197) = .795; p = 1). This means there is a .03 percent chance of perceiving the difference we see between the academic and vocation programs, or more extreme, assuming the population mean science scores are the same. This also means there is a 2.55% chance of perceiving the difference we see between the general and vocation programs, or more extreme, assuming the populations mean science scores are the same. Lastly, this means there is a 100% chance of perceiving the difference we see between the academic and general programs, or more extreme, if we assume their population mean science scores are the same.
+
+```{r oneway anova}
+
+model1.formula <- lm(science ~ Program, data=hsb2)
+Anova(model1.formula)
+model1.emm <- emmeans(model1.formula, pairwise ~ Program,  adjust = "bonferroni")
+model1.emm$contrasts
+model1.ci <- confint(model1.emm, adjust="bonferroni")$emmeans
+model1.ci
+plot(model1.ci)
+
+```
+
+## Statistical Decision and Conclusion
+
+Due to a statistically significant p-value (p =.0004 < .05), we reject the null hypothesis that the population mean science scores for each academic program are the same. We have very strong evidence to suggest that the population mean science score of at least one academic program is different from the others. Due to statistically significant p-values in our post-hoc t-tests comparing the academic and vocation program and general and vocation program, we have evidence to suggest that the groups that differ from one another are the academic and vocation programs and the general and vocation programs. Due to a statistically insignificant p-value in our post-hoc t-test comparing means of the academic and general programs, we have no evidence to suggest the any group difference in science scores between the academic and general programs.
+
+# Writing Scores
+
+Research question: Are the average scores for the writing subsection of the standardized tests different by type of academic program and/or socioeconomic status? If so, how?
+
+Perform a two-way ANOVA to answer the research question using a 0.05 overall significance level. Use the variables write, prog, and ses.
+
+## Numerical and Visual Summary
+
+```{r num and vis p2}
+
+by_group <- group_by(hsb2, Program, SES)
+kableExtra::kable(summarize(by_group, nNA = sum(is.na(write)), mean = mean(write, na.rm=TRUE),SD = sd(write, na.rm=TRUE), 
+              median = median(write, na.rm=TRUE), 
+              IQR = quantile(write, 0.75, na.rm=TRUE)-quantile(write, 0.25, na.rm=TRUE),
+              min = min(write, na.rm=TRUE),
+              max = max(write, na.rm=TRUE), 
+              n = length(write), .groups = "keep"), digits = 3, "simple", caption="Table 2: Numerical summary of Writing scores by Program and SES" )
+
+
+by_group <- group_by(hsb2, Program)
+kableExtra::kable(summarize(by_group, nNA = sum(is.na(write)), mean = mean(write, na.rm=TRUE),SD = sd(write, na.rm=TRUE), 
+              median = median(write, na.rm=TRUE), 
+              IQR = quantile(write, 0.75, na.rm=TRUE)-quantile(write, 0.25, na.rm=TRUE),
+              min = min(write, na.rm=TRUE),
+              max = max(write, na.rm=TRUE), 
+              n = length(write), .groups = "keep"), digits = 3, "simple", caption="Table 3: Numerical summary of Writing scores by Program" )
+
+
+by_group <- group_by(hsb2, SES)
+kableExtra::kable(summarize(by_group, nNA = sum(is.na(write)), mean = mean(write, na.rm=TRUE),SD = sd(write, na.rm=TRUE), 
+              median = median(write, na.rm=TRUE), 
+              IQR = quantile(write, 0.75, na.rm=TRUE)-quantile(write, 0.25, na.rm=TRUE),
+              min = min(write, na.rm=TRUE),
+              max = max(write, na.rm=TRUE), 
+              n = length(write), .groups = "keep"), digits = 3, "simple", caption="Table 4: Numerical summary of Writing scores by SES" )
+
+f <- ggplot(by_group %>% drop_na(Program),aes(x = Program, y = write, na.rm=TRUE))
+
+f + geom_boxplot() + xlab("Program") + ylab("Writing Scores") +ggtitle("Figure 3: Boxplot of Writing Scores by Program")
+
+by_group %>% 
+       ggplot(aes(x = write, fill=SES)) +
+       geom_histogram(binwidth=5) + facet_wrap(~Program) + theme_classic() + xlab("write Score") + ggtitle("Figure 4: Histogram of writing Score by Program and SES")
+
+hsbac <- filter(hsb2,Program=="Academic")
+hsbvo <- filter(hsb2,Program=="Vocation")
+hsbgen <- filter(hsb2,Program=="General")
+qqnorm(hsbac$write, ylab = "Writing Score for Academic Program")
+qqline(hsbac$write)
+qqnorm(hsbvo$write, ylab = "Writing Score for Vocation Program")
+qqline(hsbvo$write)
+qqnorm(hsbgen$write, ylab = "Writing Score for General Program")
+qqline(hsbgen$write)
+
+
+hsbhi <- filter(hsb2,SES=="high")
+hsblo <- filter(hsb2,SES=="low")
+hsbmid <- filter(hsb2,SES=="middle")
+qqnorm(hsbhi$write, ylab = "Writing Score for High SES")
+qqline(hsbhi$write)
+qqnorm(hsblo$write, ylab = "Writing Score for Low SES")
+qqline(hsblo$write)
+qqnorm(hsbmid$write, ylab = "Writing Score for Middle SES")
+qqline(hsbmid$write)
+
+```
+
+## Null and Alternative Hypotheses
+
+The null hypothesis for the interaction effect is that the effect of program (academic, general, vocation) on the population mean writing score is the same for all SES groups (low, medium, high)
+
+The alternative hypothesis for the interaction effect is that the effect of program on the population mean science score is not the same for all SES groups.
+
+The null hypothesis for the main effect of academic program is that there is no effect of program on mean writing score
+
+The alternative hypothesis for the main effect of academic program is that there is an effect of program on the population mean writing score.
+
+The null hypothesis for the main effect of SES is that there is no effect of SES on mean writing score
+
+The alternative hypothesis for the main effect of SES is that there is an effect of SES on the population mean writing score.
+
+## Conditions for a Two-Way Analysis of Variance (ANOVA)
+
+We will assume the SES groups are independent of one another and that the students selected from each group were randomly sampled. The sample from each SES group and from each academic program is greater than 30 and the sample standard deviations are roughly equal, so we'll assume the population variances are equal.
+
+## Two-way ANOVA and P-value with Interpretation
+
+The F statistic is .5450 for the interaction effect, indicating a small difference between between group variation and within group variation of writing scores across SES groups. The p-value is 0.7029,  which indicates a 70% chance of observing the F-statistic we observe if there is no effect of the interaction term on the mean writing score.
+
+The F statistic is 17.346 for the main effect of Program (p <.05) on writing scores. The p-value is 1.196e-07. Indicating a less than .01% chance of observing the F statistic we observe if there is no main effect of Program on writing score.
+
+The F statistic is 1.8357 for the main effect of SES on writing scores (p = .1623). Indicating a 16.23% chance of observing this F statistic if there is no main effect of SES on writing scores.
+
+```{r twoway anova}
+
+model1.formula <- lm(write ~ Program*SES, data=hsb2)
+Anova(model1.formula)
+model1.emm <- emmeans(model1.formula, pairwise ~ Program*SES,  adjust = "bonferroni")
+model1.ci <- confint(model1.emm, adjust="bonferroni")$emmeans
+model1.ci
+plot(model1.ci)
+
+with(hsb2, interaction.plot(Program, SES, write, ylab="Mean Writing Score"))
+```
+
+## Statistical Decision and Conclusion
+
+Due to a nonstatistically significant p-value for the interaction effect, we do not reject the null hypothesis that the population mean writing scores for each academic program are the same across SES groups. We have no evidence to suggest that the population mean writing score of at least one academic program is different from the others. There is a statistically significant p-values for the main effect, thus we reject the null hypothesis that there is no main effect of Program on mean writing scores. We have very strong evidence that there is a main effect of Program on mean writing score. There is a nonstatistically significant p-value for the main effect of SES, thus we do not reject the null hypothesis that there is no main effect of SES on mean writing scores. We do not have evidence to suggest a main effect of SES on mean writing score.
+
+# Session Information
+
+```{r}
+sessionInfo()
+```
+

@@ -1,0 +1,259 @@
+---
+title: "INFSCI 2595 Fall 2022 Final Project EDA"
+author: "Benjamin Panny"
+date: "Submission time: December 13, 2022 at 11:00PM EST"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+# Project Overview (from Project Guidelines PDF)
+
+Surface coating helps materials people interact with last longer.
+
+Coating is created by combining constituent materials together.
+
+Constituents are combined in a manufacturing process following a specific set of operating conditions.
+
+Coating is applied to a specimen and the speciment is subjected to an accelerated life test.
+
+An accelerated life test includes conditions such as extreme temperatures and humidity for extended periods of time. These tests simulate years of typical material use. The outcome of these tests is the amount of corroded surface.
+
+The aim of experimenting with surface coatings is to minimize the amount of corroded surface after the accelerated life test. Experiments can be augmented by training machine learning models that find the optimal constituents and process settings to minimize corrosion.
+
+The goals of this project are as follows:
+
+1. Build machine learning models and use the best model to identify input values that minimize the output. This involves training models to predict the fraction of corroded surface per test as a function of the inputs.
+1. Understand which inputs are most important at causing the fraction of corroded surface to be less than 0.33. This involves identifying the best binary classifier.
+1. Train models that use a mixture of provided inputs and derived features to identify if the derived features are as important as subject matter experts believe they are.
+1. Understand if the machine used to manufacture coatings influences the test response.
+
+# Data Description (from Project Guidelines PDF)
+
+The inputs consist of three groups of variables:
+
+* Chemistry variables: `x1, x2, x3, x4`
+  * These are fractions between 0 and 1. Providing the proportion of a coating material constituted by the constituent.
+  * A "balance" constituent, `x5`, is also present in the coating material. The fraction associated with the balance is `x5 = 1 - (x1 + x2 + x3 + x4)`. This means a subset of the first four inputs must be selected to include in the model when `x5` is included because including all of them will cause one of their coefficients to be undefined because of singularities. That is, through x5, each can be written as having an exact linear relationship with the sum of all the others. This means the effect of one input variable can't be estimated when holding all the other input variables constant because the change in the one is a change in the others by definition.
+* Manufacturing process variables: `v1, v2, v3, v4, v5`
+  * These represent how chemical constituents are combined to create a coating.
+* Machine used to manufacture the coating: `m`
+  * A categorical variable.
+
+Derived features proposed by subject matter experts:
+* The "w" ratio: `w = x2 / (x3 + x4)`
+* The "z" ratio: `z = (x1 + x2) / (x4 + x5)`
+* The product of v1 and v2: `t = v1 * v2`
+
+The response variable (`output`) is the fraction of the specimen surface that corroded after the test completed.
+* Regression models will be trained to predict the logit-transformed response: `y`
+* Classification models will be trained to predict the threshold-transformed response: `outcome`
+
+Rows/observations correspond to a test result and its inputs.
+
+## Load Packages
+
+```{r, load_packages}
+library(tidyverse)
+library(splines)
+library(caret)
+```
+
+## Read Data, Derive Features, and Transform the Response
+
+```{r, read_data}
+df <- readr::read_csv('fall2022_finalproject.csv', col_names = TRUE)
+```
+
+```{r, derive_features_and_transform_response}
+df <- df %>% 
+  mutate(x5 = 1 - (x1 + x2 + x3 + x4),
+         w = x2 / (x3 + x4),
+         z = (x1 + x2) / (x5 + x4),
+         t = v1 * v2,
+         y = boot::logit(output),
+         outcome = ifelse(output < 0.33, 'event', 'non_event'),
+         outcome = factor(outcome, levels = c("event", "non_event")),
+         outcome_y = ifelse(outcome == 'event', 1, 0))
+
+df_nnet_reg <- df %>%
+  select(-outcome, -outcome_y, -output)
+```
+
+Before exploring the data, convert the data to long format for certain visualizations.
+
+```{r, long_format}
+lf <- df %>% 
+  tibble::rowid_to_column() %>% 
+  pivot_longer(c(x1, x2, x3, x4, v1, v2, v3, v4, v5, x5, w, z, t))
+```
+
+# Exploratory Data Analysis
+
+Take a look at the data.
+
+```{r, glimpse}
+df %>% glimpse()
+lf %>% glimpse()
+```
+
+There are 1,252 observations and 14 features
+
+
+## Visualize the Distribution of the Variables in the Dataset.
+
+Visualize the base and derived features.
+
+```{r, viz_distributions_features}
+lf %>% 
+  ggplot(mapping = aes(x = value)) +
+  geom_histogram(bins = 10) +
+  facet_wrap( ~ name, scales = "free")
+
+df %>%
+  ggplot(mapping = aes(x = m)) +
+  geom_bar()
+```
+
+```{r, viz_distributions_response}
+df %>%
+  ggplot(mapping = aes(x = output)) +
+  geom_histogram(bins = 20)
+
+df %>%
+  ggplot(mapping = aes(x = y)) +
+  geom_histogram(bins = 20)
+
+df %>%
+  ggplot(mapping = aes(x = outcome)) +
+  geom_bar(mapping = aes(y = stat(prop), group = 1))
+```
+
+The event of interest (less than .33 corrosion fraction) is unbalanced with the non-event (>= .33 corrosion fraction), but is not a rare event.
+
+## Visualize Conditional Distributions
+
+```{r, viz_distributions_categories}
+# Manufacturing process variables
+lf %>%
+  filter(grepl("v", name)) %>%
+  ggplot(mapping = aes(x = value)) +
+  geom_histogram(bins = 10) +
+  facet_grid(m ~ name, scales = "free")
+
+# Constituent variables
+lf %>% 
+  filter(grepl("x", name)) %>%
+  ggplot(mapping = aes(x = value)) +
+  geom_histogram(bins = 10) +
+  facet_grid(m ~ name, scales = "free")
+
+# Derived Features
+lf %>% 
+  filter(name %in% c("w", "z", "t")) %>%
+  ggplot(mapping = aes(x = value)) +
+  geom_histogram(bins = 10) +
+  facet_grid(m ~ name, scales = "free")
+
+# All features
+lf %>%
+  ggplot(mapping = aes(x = m, y = value)) +
+  geom_boxplot() +
+  facet_wrap( ~ name, scales = "free_y")
+
+# Response variables
+df %>%
+  ggplot(mapping = aes(x = output)) +
+  geom_histogram(bins = 20) +
+  facet_wrap( ~ m)
+
+df %>%
+  ggplot(mapping = aes(x = y)) +
+  geom_histogram(bins = 20) +
+  facet_wrap( ~ m)
+
+df %>%
+  ggplot(mapping = aes(x = m, fill = outcome)) +
+  geom_bar(position = 'fill') +
+  labs(y = "group proportion")
+
+```
+
+The distributions of the base and derived features and the response variables appear largely consistent across the different machines used in the manufacturing processes.
+
+## Visualize Relationships between Base and Derived Features
+
+```{r, viz_relationships_base_derived_features}
+# Correlation plot, no interactions
+df %>%
+  select(starts_with(c("x", "v")), "w", "t", "z") %>%
+  cor() %>%
+  corrplot::corrplot(type = 'upper', method = 'square',
+                     order = 'hclust', hclust.method = 'ward.D2')
+
+# correlation plot, interactions
+df_cont_feat <- df %>% select(-y, -output, -outcome, -outcome_y, -m)
+model.matrix( ~ .*. - 1, data = df_cont_feat)  %>%
+  cor() %>%
+  corrplot::corrplot(type = 'upper', method = 'square',
+                     order = 'hclust', hclust.method = 'ward.D2')
+
+# correlation plot, with some quadratic features
+df_quad_feat <- model.matrix(~ . + I(x1^2) + I(x5^2) + I(z^2) - 1, data = df_cont_feat)
+df_quad_feat %>%
+  cor() %>%
+  corrplot::corrplot(type = 'upper', method = 'square',
+                     order = 'hclust', hclust.method = 'ward.D2')
+```
+
+## Visualize Relationships between Features and Response Variable
+
+```{r, viz_input_output_relationships}
+lf %>%
+  ggplot(mapping = aes(x = value, y = y, color = m, fill = m)) +
+  geom_point() +
+  geom_smooth(size = 3, alpha = .5) +
+  facet_wrap( ~ name, scales = "free_x")
+
+df %>%
+  ggplot(mapping = aes(x = m, y = y)) +
+  geom_boxplot()
+```
+
+The relationship between the following features and the response variable, y, appear to be noise: t, v1, v2, v3, v4, v5, x2, and x4
+The following variables appear to have potentially interesting, non-linear (mostly quadratic) relationships with the response variable, y: w, x1, x2, x5, and z
+These observations appear to be independent of the machine used. The machine used also does not appear to affect the output y much.
+
+```{r, viz_inputs_event_relationship}
+lf %>%
+  ggplot(mapping = aes(x = value, y = outcome_y, color = m, fill = m)) +
+  geom_jitter(height = 0.02, width = 0) +
+  geom_smooth(formula = y ~ x,
+              method = glm,
+              method.args = list(family = 'binomial')) +
+  facet_wrap( ~ name, scale = "free_x")
+```
+
+There do not appear to be very strong linear relationships between the base and derived features and the binary outcome. Since some of the input-output relationships appeared to show a non-linear relationship, it makes sense to try visualizing non-linear relationships between the base and derived features and the binary outcome.
+
+```{r, viz_inputs_event_relationship_quadratic_cubic}
+lf %>%
+  ggplot(mapping = aes(x = value, y = outcome_y, color = m, fill = m)) +
+  geom_jitter(height = 0.02, width = 0) +
+  geom_smooth(formula = y ~ x + I(x^2),
+              method = glm,
+              method.args = list(family = 'binomial')) +
+  facet_wrap( ~ name, scale = "free_x")
+
+lf %>%
+  ggplot(mapping = aes(x = value, y = outcome_y, color = m, fill = m)) +
+  geom_jitter(height = 0.02, width = 0) +
+  geom_smooth(formula = y ~ x + I(x^2) + I(x^3),
+              method = glm,
+              method.args = list(family = 'binomial')) +
+  facet_wrap( ~ name, scale = "free_x")
+```
+
+These visualizations seem consistent with those of the continuous output, y. In particular, the quadratic model seems to simplify and make salient the relationship between the binary outcome and x1, x5, and z well. The cubic model points towards the idea that certain machines may interact with certain features, such as t, x4, and x3, though some of these cubic models have high uncertainty (e.g., for t).

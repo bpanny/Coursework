@@ -1,0 +1,112 @@
+---
+title: "M9 Data Analysis - Linear RegressionV2"
+author: "Benjamin Panny"
+date: "12/12/2021"
+output:
+  html_document:
+    df_print: paged
+    toc: yes
+    toc_float: 
+      collapsed: true
+    number_sections: yes
+    fig_caption: yes
+    fig_width: 10
+    fig_height: 6.6
+    toc_depth: '3'
+    code_folding: show
+---
+
+```{r setup, include=FALSE}
+
+require(knitr)
+# Set so that long lines in R will be wrapped:
+opts_chunk$set(tidy.opts=list(width.cutoff=100),tidy=TRUE, echo = TRUE)
+
+#knitr::opts_chunk$set(echo = TRUE)
+library(tidyverse)
+library(DescTools)
+library(gridExtra)
+library(kableExtra)
+load("laryngoscope.RData", verbose=TRUE)
+lng <- laryngoscope
+colnames(lng)[3] <- "ease"
+colnames(lng)[1] <- "Age"
+colnames(lng)[5] <- "Scope"
+lng$Scope[which(lng$Scope=='conventional')] <- 'Conventional Laryngoscope'
+lng$Scope[which(lng$Scope=='video')] <- 'Video-Assisted Laryngoscope'
+
+# ra$Biologics[which(ra$Biologics==1)] <- "Receiving Treatment"
+# ra$Biologics[which(ra$Biologics==0)] <- "Not Receiving Treatment"
+# ra$CDAI_YN[which(ra$CDAI_YN==1)] <- "CDAI not measured"
+# ra$CDAI_YN[which(ra$CDAI_YN==2)] <- "CDAI measured"
+```
+
+# Tracheal Intubations
+
+Research goal: Describe the relationship between the ease and age, if any, among patients who were successfully intubated on the first attempt.
+
+Use linear regression with the variables age and ease (a scale from 0-100 with higher numbers indicating more difficult intubations) to address this. Use a 0.05 significance level for any hypothesis tests. 
+
+## Numerical and Visual Summary
+
+```{r num and vis p1}
+
+by_group <- group_by(lng, Scope)
+
+kableExtra::kable(summarize(by_group, nNA = sum(is.na(ease)), mean = mean(ease, na.rm=TRUE),SD = sd(ease, na.rm=TRUE), 
+              median = median(ease, na.rm=TRUE), 
+              IQR = quantile(ease, 0.75, na.rm=TRUE)-quantile(ease, 0.25, na.rm=TRUE),
+              min = min(ease, na.rm=TRUE),
+              max = max(ease, na.rm=TRUE), 
+              n = length(ease)), digits = 3, "simple", caption="Table 1: Numerical Summary of Ease of Intubation by Scope Type" )
+
+
+f <- ggplot(by_group %>% drop_na(Scope),aes(x = Scope, y = ease, na.rm=TRUE))
+
+
+f + geom_boxplot() + xlab("Scope Type") + ylab("Ease of Intubation Scores") +ggtitle("Figure 1: Boxplot of Ease of Intubation Scores by Scope Type")
+
+ggplot(lng %>% drop_na(Scope,ease), aes(x=ease)) + geom_histogram(binwidth=15,fill='red',color='black') + facet_wrap(~Scope) + theme_classic() + xlab("Ease of Intubation Score") + ggtitle("Figure 2: Histogram of Ease of Intubation Score by Scope Type")
+
+lng %>% 
+  ggplot(aes(x = Age, y = ease, color = Scope)) +
+  geom_point(size=3, stroke=1) + ylab('Ease of Intubation Score') + xlab("Age (Years)") + ggtitle('Figure 3: Ease of Intubation Score by Age and Scope Type')+geom_smooth(method="lm")
+
+lngvideo <- filter(lng,Scope=="Video-Assisted Laryngoscope")
+lngconventional <- filter(lng,Scope=="Conventional Laryngoscope")
+qqplot(lngvideo$Age, lngvideo$ease, ylab = "Ease Score for Video-Assisted Scope", xlab = "Age (years)", main = "Figure 4: Normality of Ease score by Age")
+qqline(lngvideo$ease)
+
+```
+
+# Fitting a Model
+## Interpretation of the Fitted Linear Regression Model of Patients who had Tracheal Intubation Completed on the First Attempt
+
+We seek to estimate the change in the expected (average) value of Ease of Intubation Score per one unit (year) increase in Age.
+
+For surgeries successfully completed on the first attempt, we observe an intercept coefficient of 8.7783, indicating a average ease score of 8.78 if tracheal intubation were to be performed on a 0 year old. However, this is not particularly useful since this extrapolates below any observed values for age in our dataset. We also observed a Beta coefficient for Age of 0.6479. This indicates a 0.6479 increase in the expected value (average) of ease score per one year increase. The 95% confidence interval for this slope is (.194, 1.101). This is to say we are 95% confident our observed interval captures the true linear relationship (slope), a confidence level we derive from our random interval (constructed from our random sample) capturing the true parameter 95% of the time.
+
+We perform a one-sample t-test on the slope to determine whether the relationship between age and ease score is statistically significant in those with successful surgeries on the first attempt. We do this knowing that there are no multiple observations per person and assume no patients are related. As can be seen in Figure 3, the relationship between ease score and age in this group is linear and has no drastic differences in variance of ease score for all values of age. As can be seen in Figure 4, ease score is approximately normal by values of age.
+
+For the null hypothesis that the slope is equal to zero (and an alternative hypothesis it is not equal to zero), we observe a T-statistic of 2.840, indicating an estimated slope greater than the standard error of the estimate. We observe a p-value of 0.006, indicating a 0.6% chance of observing the slope we do if the true value is zero. Thus we have evidence that supports rejecting the null hypothesis.
+
+The coefficient of determination for Age is 0.086, indicating age explains 8.6% of the total variance in ease score in those who had surgeries succesfully completed on the first attempt.
+
+
+```{r linear regression}
+model1 <- lm(ease ~ Age, data=lng)
+summary(model1)
+confint(model1)
+```
+The average ease score for 40 year-olds given our model of the patients who had intubation completed on the first attempt is 34.6946 out of 100.
+
+```{r estimate}
+matrix_coef <- summary(lm(ease ~ Age, data=lng))$coefficients #extract coef
+my_estimates <- matrix_coef[ , 1] #extract estimates
+as.numeric(my_estimates[2])*40+as.numeric(my_estimates[1])
+```
+
+# Statistical Decision and Conclusion in Context
+
+Due to a statistically significant p-value for the slope between age and ease score, we reject the null hypothesis that there is no linear relationship between age and ease score in those who successfully completed surgery on the first attempt. We have evidence to suggest that a nonzero linear relationship between age and ease score exists in this patient group. Given these statistical results, we conclude tracheal intubation tends to become more difficult with older patients.
+

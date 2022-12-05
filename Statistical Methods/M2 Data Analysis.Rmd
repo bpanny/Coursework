@@ -1,0 +1,179 @@
+---
+title: 'M2 Data Analysis'
+output:
+  html_document: 
+    toc: yes
+    toc_float: 
+      collapsed: false
+    number_sections: yes
+    fig_caption: yes
+    fig_width: 10
+    fig_height: 6.6
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+library(tidyverse)
+library(gridExtra)
+
+load("OPT.RData", verbose=TRUE)
+
+```
+
+# One Variable Descriptions
+
+## Treatment Group
+Groups in this study were assigned roughly 50/50 as shown in the figure below.
+
+```{r group}
+#visualization of group assignment
+ggplot(opt %>% drop_na(Group), aes(x = Group)) + geom_bar() + theme_classic() + ggtitle("Group Assignment") +
+  stat_count(aes(label = sprintf("%.02f %%", ..count../sum(..count..)*100)), geom = 'text', vjust = 1, color="white") # add percent text
+```
+
+The number of participants in each group can be seen more clearly with the below table. The total number of participants was 823, so no participant was not assigned to a group.
+
+```{r groupnum}
+#numerical summary of group assignment
+kableExtra::kable(opt %>% group_by(Group) %>% summarize("Number of participants" = n()), align = "lc", digits = 4)
+```
+
+## Birthweight
+
+Compared to group assignment, data on birthweight for 30 participants is missing. As can be seen in the below table and histogram, birthweight is centered around 3200 grams with a range of over 4500 grams. Birthweight also appears to be unimodal and symmetric, while birthweight outliers are skewed towards lower birthweights rather than higher birthweights.
+
+```{r birthweight}
+kableExtra::kable(summarize(opt, n_NA = sum(is.na(Birthweight)), mean = mean(Birthweight, na.rm=TRUE), SD = sd(Birthweight, na.rm=TRUE), 
+              median = median(Birthweight, na.rm=TRUE), 
+              IQR = quantile(Birthweight, 0.75, na.rm=TRUE)-quantile(Birthweight, 0.25, na.rm=TRUE),
+              min = min(Birthweight, na.rm=TRUE),
+              max = max(Birthweight, na.rm=TRUE)), digits = 3, "simple"
+)
+
+#visualization of infant birthweight
+ggplot(opt %>% drop_na(Birthweight), aes(x=Birthweight)) + geom_histogram(binwidth = 100, color="black", fill="white") + # use 100 gram wide bins
+  xlab("Birthweight (grams)") + # label the x-axis
+  ggtitle("Distribution of Infant Birthweight (grams)") # title the plot
+```
+
+## Pregnant Individual's Age at Baseline
+
+Age of pregnant individuals at baseline is centered around 25-26, is unimodal, and right-skewed. 
+
+```{r age}
+#numerical summary of age of pregnant individual at baseline
+kableExtra::kable(summarize(opt, n_NA = sum(is.na(Age)), mean = mean(Age, na.rm=TRUE), SD = sd(Age, na.rm=TRUE), 
+              median = median(Age, na.rm=TRUE), 
+              IQR = quantile(Age, 0.75, na.rm=TRUE)-quantile(Age, 0.25, na.rm=TRUE),
+              min = min(Age, na.rm=TRUE),
+              max = max(Age, na.rm=TRUE)), digits = 3, "simple")
+
+ggplot(opt, aes(x=Age)) + geom_histogram(binwidth = 2, color="black", fill="white") + # use 2 year wide bins
+  xlab("Age (years)") + # label the x-axis
+  ggtitle("Distribution of Age of Pregnant Individuals at Baseline") # title the plot
+
+```
+
+## Preterm Birth
+
+Data on preterm birth is not applicable for 30 participants. 89.66% of participants did not have a preterm birth, while 10.34% of participants did.
+
+```{r preterm}
+#numerical summary of Preterm births #there are NAs
+kableExtra::kable(opt %>% group_by(Preterm) %>% summarize("Number of participants" = n()), "pipe")
+
+#visualization of pre-term birth
+ggplot(opt %>% drop_na(Preterm), aes(x = Preterm)) + geom_bar() + theme_classic() + ggtitle("Proportion of Preterm Births") +
+  stat_count(aes(label = sprintf("%.02f %%", ..count../sum(..count..)*100)), geom = 'text', vjust = 1, color="white") # add percent text
+```
+
+## Extreme Birthweights
+
+The maximum infant birthweight observed was 5160 grams. It's z-score is ~3.296, which means this observation is ~3.296 standard deviations above the mean birthweight. The minimum infant birthweight was 450 grams. It's z-score is approximately -4.825, which means this minimum observation is approximately 4.825 standard deviations below the mean birthweight. Both the minimum and maximum observations are very surprising given the sample mean birthweight of ~3248 grams and standard deviation of ~579 grams. That is, under the location and scale parameters of the sample distribution, the maximum and minimum observations had less than a 1% chance of being observed. 
+
+Code for finding the maximum, minimum, mean, and standard deviation of birthweight is given below. Code for finding the z-scores is also given below.
+
+```{r extreme bw}
+#obtain max, min, mean, sd of birthweight. Calculate z score of max and min assuming normal distr w/ sample mean and sd
+max_bw = max(opt$Birthweight, na.rm = TRUE)
+min_bw = min(opt$Birthweight, na.rm = TRUE)
+mean_bw = mean(opt$Birthweight, na.rm = TRUE)
+sd_bw = sd(opt$Birthweight, na.rm = TRUE)
+zmax = ( max_bw - mean_bw ) / sd_bw
+zmin = ( min_bw - mean_bw ) / sd_bw
+```
+
+# Two Variable Descriptions
+
+## Group and Preterm Status
+
+Within the control and treatment groups, the proportion of individuals with preterm births was within 1% of 10% of individuals in each group. The difference in proportion of preterm births between groups was .01526, with the treatment group having a slightly higher proportion of preterm births (.1095 vs. .0972). This is illustrated in the below table and side-by-side barchart. The table shows proportions of preterm births by group. The barchart compares the within-group proportions by preterm status. Code for calculating the difference in proportions between groups is given below the table and chart. It should also be noted that there were 19 individuals in the control group with "NA" preterm status, while only 11 individuals in the treatment group had "NA" preterm status. 
+
+```{r group n preterm}
+#numerical summary of preterm status within groups
+kableExtra::kable(xtabs(~ Group + Preterm, data=opt) %>% prop.table(margin = 1) %>% round(4), caption = "Preterm birth status by group", "simple")
+
+#Visualization of relationship between preterm birth and treatment group
+plot_data <- opt %>% drop_na(Group, Preterm) %>% 
+  group_by(Group, Preterm) %>% 
+  tally %>% 
+  mutate(percent = n/sum(n))
+ggplot(data = plot_data, aes(x = Group, y = percent)) + 
+  geom_bar(stat="identity", aes(fill = Group)) + 
+  theme(legend.position = "none") + # suppress legend
+  scale_y_continuous(limits=c(0,1)) + # force y-axis to be 0-1
+  facet_wrap(. ~ Preterm) +  # separate by var2
+  geom_text(aes(label = n), vjust = -0.3) + # add counts as text 
+  ggtitle("Proportion of Preterm Births by Group")
+
+```
+
+```{r group n preterm proportion diff and na count}
+#calculate difference in proportion of subjects
+#with preterm birth between treatment and control group
+ctl_pt = nrow(filter(filter(opt, Group == "Control"), Preterm == "Y"))
+ctl_nt = nrow(filter(filter(opt, Group == "Control"), Preterm == "N"))
+tmt_pt = nrow(filter(filter(opt, Group == "Treatment"), Preterm == "Y"))
+tmt_nt = nrow(filter(filter(opt, Group == "Treatment"), Preterm == "N"))
+pt_diff = abs(ctl_pt / ctl_nt - tmt_pt / tmt_nt)
+na_tmt_pt = summarize(opt %>% filter(Group =="Treatment"), n_NA = sum(is.na(Preterm)))
+na_ctl_pt = summarize(opt %>% filter(Group =="Control"), n_NA = sum(is.na(Preterm)))
+```
+
+## Preterm status and Pregnant Individual's Age
+
+The difference in mean age between those with preterm births and those without was approximately 1.73 years (27.55 vs. 25.82). There was also a similar spread in age between those with and without preterm births. In fact, the maximum age of an individual in both groups was 44. However, as can be seen in the side-by-side boxplot, ages greater than 40 in the non-preterm birth group were slightly more surprising than in the preterm birth group. That is, ages greater than 40 were more than 1.5 IQRs above the median in the non-preterm birth group but were not more than 1.5 IQRs above the median in the preterm birth group. This can be attributed to the higher median (center) and IQR (spread) of the preterm birth group. Code for calculating the mean age difference can be found after the boxplot.
+
+```{r preterm and age}
+#numerical summary of preterm birth and age
+kableExtra::kable(opt %>% group_by(Preterm) %>% 
+  summarize(n = n(),
+            mean = mean(Age, na.rm=TRUE),
+            SD = sd(Age, na.rm=TRUE), 
+            median = median(Age, na.rm=TRUE), 
+            IQR = quantile(Age, 0.75, na.rm=TRUE)-quantile(Age, 0.25, na.rm=TRUE),
+            min = min(Age, na.rm=TRUE),
+            max = max(Age, na.rm=TRUE)), digits = 2, "simple")
+
+#visualization to examine relationship between
+#preterm birth and maternal age
+ggplot(opt %>% drop_na(Preterm, Age), aes(y=Age, x=Preterm)) + geom_boxplot() + 
+  theme_classic() + ylab("Age (years)")
+
+#calc difference in mean age between preterm and normal term
+mean_age_pt = mean(filter(opt, Preterm == "Y")$Age)
+mean_age_nt = mean(filter(opt, Preterm == "N")$Age)
+mean_age_term_diff = abs(mean_age_pt - mean_age_nt)
+```
+
+## Infant Birthweight and Pregnant Individual's Age
+
+There is an extremely weak positive correlation between infant birthweight and pregnant individual's age (r = .038). This means that either of these variables accounts for less than 2% of the variance of the other, while greater than 98% of the variance is left unexplained. This is illustrated in the below scatterplot, where a wide and mostly equal range of birthweights is present for every age. Code for calculating the correlation coefficient is also present below.
+
+```{r birthweight and age}
+#numerical - birthweight and age correlation
+age_bw_cor = cor(opt$Age, opt$Birthweight, use="pairwise.complete.obs")
+
+#visualization - birthweight and age
+ggplot(opt %>% drop_na(Birthweight, Age), aes(x=Age, y=Birthweight)) + geom_point() + ylab("Birthweight (grams)") + xlab("Age (years)") + ggtitle("Scatterplot of Age and Birthweight")
+```

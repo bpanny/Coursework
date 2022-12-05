@@ -1,0 +1,167 @@
+---
+title: "M4 Data Analysis: One Sample Procedures"
+author: "Benjamin Panny"
+date: date()
+output:
+  html_document:
+    df_print: paged
+    toc: true
+    number_sections: true
+    toc_depth: '3'
+    code_folding: show
+---
+
+```{r,echo=FALSE,message=FALSE,warning=FALSE}
+require(knitr)
+# Set so that long lines in R will be wrapped:
+opts_chunk$set(tidy.opts=list(width.cutoff=100),tidy=TRUE)
+#knitr::opts_chunk$set(echo = TRUE)
+library(tidyverse)
+library(DescTools)
+library(gridExtra)
+
+load("cd4.RData", verbose=TRUE)
+n <- nrow(cd4)
+x.bar <- mean(cd4[,1])
+mu <- 200
+s <- sd(cd4[,1])
+```
+
+
+# CD4 cell counts
+
+## A description of the population and the sample
+Our population of interest is HIV-infected patients prior to treatment. Our sample consists of 29 patients from this population.
+
+## A numerical and visual summary of the CD4 cell counts from the sample
+
+```{r cd4 num and vis}
+kableExtra::kable(summarize(cd4, n_NA = sum(is.na(cd4)), mean = mean(cd4, na.rm=TRUE), SD = sd(cd4, na.rm=TRUE), 
+              median = median(cd4, na.rm=TRUE), 
+              IQR = quantile(cd4, 0.75, na.rm=TRUE)-quantile(cd4, 0.25, na.rm=TRUE),
+              min = min(cd4, na.rm=TRUE),
+              max = max(cd4, na.rm=TRUE)), digits = 3, "simple", caption="CD4 Cell Counts from 29 HIV-infected Patients Prior to Treatment" )
+
+
+ggplot(cd4, aes(x=cd4)) + geom_histogram(aes(y=..density..),binwidth = 30, color="black", fill="white") + 
+  geom_density(alpha=.2, fill="#FF6666") + theme_classic() + # use 10 count wide bins
+  xlab("CD4 Cell Count") + # label the x-axis
+  ggtitle("Distribution of CD4 Cell Counts from 29 HIV-infected Patients Prior to Treatment")  # title the plot
+  
+```
+
+## The null and alternative hypotheses
+The null hypothesis is that the CD4 cell counts of HIV-infected patients prior to treatment is 200. The alternative hypothesis is that the average CD4 cell counts of HIV-infected patients prior to treatment is at less than 200.
+
+## Check the conditions for using the appropriate hypothesis test
+*We will assume the sample of 29 HIV positive patients was randomly selected, making it a simple random sample.
+*Population average of CD4 cell counts of HIV-infected patients prior to treatment is normally distributed or n > 30. Sample size is less than 30 (n=29). We will assume the population is normally distributed because of [prior literature](https://www.ncbi.nlm.nih.gov/pmc/articles/PMC3162193/) in HIV negative patients showing a normal distribution of CD4 cell counts [Figure 1 from aforementioned prior literature](https://www.ncbi.nlm.nih.gov/core/lw/2.0/html/tileshop_pmc/tileshop_pmc_inline.html?title=Click%20on%20image%20to%20zoom&p=PMC3&id=3162193_TOAIDJ-5-74_F1.jpg). Even if this assumption based on HIV-negative patients is wrong, n=29 is still fairly close to 30, so there is enough reason to believe the t procedure for one mean is applicable. We also note that the sample is approximately normally distributed according to the below normal quantile plot.
+
+```{r normality asst}
+
+
+qqnorm(cd4[,1], ylab = "CD4 Cell Count")
+qqline(cd4[,1])
+```
+
+
+
+
+## Identify and interpret the test statistic and p-value. (Hint: The test statistic measures…what? The p-value is the probability of…what?)
+
+The t-statistic is -1.5208 and the p.value is 0.0698. This t-statistic indicates that the sample mean is 1.5208 sample-size adjusted standard deviations below the hypothesized value. The p-value means that the probability of observing the sample mean we observe or one even further from the hypothesized mean, given the observed standard deviation and sample size, is 0.0698 (6.98% chance) if the hypothesized value of 200 is truly the mean for this population.
+
+```{r test stat and p val}
+t.test(x = cd4, mu = 200, alternative = "less")
+```
+
+## A statistical decision (reject or fail to reject the null hypothesis) and conclusion in the context of the problem
+
+Because our p-value is greater than the statistical significance level (alpha = .05), we fail to reject the null hypothesis that HIV-positive patients prior to treatment have an average CD4 count of less than 200. However, the p-value of 0.0698 (< .10) is suggestive that there may in fact be a significant difference between the population mean and the hypothesized mean of 200. Given the small sample size in this study, it is worthwhile to repeat the research with a larger sample size to replicate this finding to ensure we are not committing a type II error. Indeed, the below code reveals 43.6% power for the present study design, meaning a (1-beta) 56.4% chance of incorrectly failing to reject the null hypothesis when it is not true.
+
+```{r power estimation of original sample size}
+power.orig = power.t.test(n=29, delta = (200 - mean(cd4[,1])), sd = s, type="one.sample", alternative="one.sided" )
+power.orig[5]
+```
+
+## A confidence interval and interpretation of it in the context of the problem. Discuss if this agrees with the results of the hypothesis test.
+
+The one sided 95% confidence interval for average cd4 cell counts is (174.79, 201.41). This is to say that if we repeated the same procedures, the interval given by the data would capture the true population mean 95% of the time and we are therefore 95% confident that the population mean is between 174.79 cells and 201.41 cells.
+
+```{r conf interval cd4}
+
+u.ci = x.bar + 1.7016 * s/(sqrt(n))
+l.ci = x.bar - 1.7016 * s/(sqrt(n))
+
+paste0("The 95% confidence interval for average cd4 cell counts is (",round(l.ci,digits=2),", ",round(u.ci,digits=2),")")
+
+```
+## The researchers are planning a follow-up study to this, to again examine whether the average CD4 cell counts of HIV-infected patients prior to treatment is less than 200. If they want to be able to detect a difference in the average cell count of 10 cells, find the necessary sample sizes for having statistical power of 0.50, 0.60, 0.70, 0.80, and 0.90.
+
+The necessary sample sizes for having the given statistical powers while being able to detect a difference of 10 cells in the average cell count is given underneath the below code.
+
+```{r}
+
+p5 = power.t.test(power=0.50, delta = 10, sd = s, type="one.sample", alternative = "one.sided")
+
+p6 = power.t.test(power=0.60, delta = 10, sd = s, type="one.sample", alternative = "one.sided")
+
+p7 = power.t.test(power=0.70, delta = 10, sd = s, type="one.sample", alternative = "one.sided")
+
+p8 = power.t.test(power=0.80, delta = 10, sd = s, type="one.sample", alternative = "one.sided")
+
+p9 = power.t.test(power=0.90, delta = 10, sd = s, type="one.sample", alternative = "one.sided")
+
+cat(paste0("The necessary sample size to detect a difference of 10 with 50% power is ", ceiling(as.numeric(p5[1])),"\n\nThe necessary sample size to detect a difference of 10 with 60% power is ", ceiling(as.numeric(p6[1])),"\n\nThe necessary sample size to detect a difference of 10 with 70% power is ", ceiling(as.numeric(p7[1])),"\n\nThe necessary sample size to detect a difference of 10 with 80% power is ", ceiling(as.numeric(p8[1])),"\n\nThe necessary sample size to detect a difference of 10 with 90% power is ", ceiling(as.numeric(p9[1]))))
+
+```
+
+
+# Lung cancer rate
+
+
+## A description of the population and the sample
+
+The population of interest is the male chemical plant workers who die after working for the plant at least 1 year and the sample is the male chemical plant workers who died between 1970-1972 who had been working for the plant for at least 1 year.
+
+## The null and alternative hypotheses
+
+The null hypothesis is that the proportion of deaths due to lung cancer in a population of males working at a chemical plant is the same as the proportion of deaths due to lung cancer in the general population. The alternative hypothesis is that the proportion of deaths due to lung cancer in a population of males working at a chemical plant is significantly greater than the proportion of deaths due to lung cancer in the general population.
+
+## Check the conditions for using the appropriate hypothesis test
+
+We will first check the conditions for a Z procedure for one proportion because the simple random sample condition is met because our sample is, presumably, all of the deaths that occurred in plant workers from 1970-1972 who've worked for the plant at least one year. As such, it is the full population of deaths at this plant we are measuring, foregoing the simple random sample condition because the population fully represents itself. There is also no reason to assume that the selection of 1970-1972 is not representative of years prior and in the future, all other things being equal.
+
+There are also close to five expected successes given the general (hypothesized) proportion. n x p0 = 40 x .12 = 4.8. However, the condition that the number of expected lung cancer deaths is at least 5 is not met.
+
+Because one of the conditions for the Z procedure is not met, we can use the Exact Binomial test.
+
+## Identify and interpret the test statistic and p-value. (Hint: The test statistic measures…what? The p-value is the probability of…what?)
+
+We do not obtain a test statistic since we can't use the Z procedure for one proportion and used the Exact Binomial Test instead. The Exact Binomial Test (in the code below) p-value indicates the probability of observing at least 10 deaths from lung cancer amongst the 40 observed deaths when the probability of a death being caused by lung cancer is 12%. The p-value given is .006, which is an order magnitude less than our significance level alpha = .05. This indicates strong evidence that the proportion (25%) of male worker deaths at the chemical plant caused by lung cancer is significantly higher than the proportion (12%) of male worker deaths caused by lung cancer in the general population.
+
+```{r prop test stat and pval}
+
+pbinom(10,40,0.12,lower.tail=FALSE)
+
+```
+
+## A statistical decision (reject or fail to reject the null hypothesis) and conclusion in the context of the problem
+
+We reject the null hypothesis, we have evidence that the population proportion of male worker deaths due to the lung cancer at the chemical plant is greater than the expected value given the population proportion of male worker deaths due to the lung cancer in the general population.
+
+## A confidence interval and interpretation of it in the context of the problem. Discuss if this agrees with the results of the hypothesis test.
+
+The one-sided Clopper-Pearson 95% Confidence Interval for the one-sided exact binomial test is [.1424, .3871]. This is to say that if we repeated the same procedures, the interval given by the data would capture the true population proportion 95% of the time and we are therefore 95% confident that the population proportion of male chemical plant workers dying of lung cancer vs. another cause is between 14.24% and 38.71%.
+
+```{r binom ci}
+
+BinomCI(10, 40, conf.level = 0.90, method = "clopper-pearson")
+
+```
+
+# Session Information
+
+```{r}
+sessionInfo()
+```

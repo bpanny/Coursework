@@ -1,0 +1,791 @@
+---
+title: "INFSCI 2595 Fall 2022 Final Project"
+author: "Benjamin Panny"
+date: "Submission time: December 13, 2022 at 11:00PM EST"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+# Project Overview (from Project Guidelines PDF)
+
+Surface coating helps materials people interact with last longer.
+
+Coating is created by combining constituent materials together.
+
+Constituents are combined in a manufacturing process following a specific set of operating conditions.
+
+Coating is applied to a specimen and the speciment is subjected to an accelerated life test.
+
+An accelerated life test includes conditions such as extreme temperatures and humidity for extended periods of time. These tests simulate years of typical material use. The outcome of these tests is the amount of corroded surface.
+
+The aim of experimenting with surface coatings is to minimize the amount of corroded surface after the accelerated life test. Experiments can be augmented by training machine learning models that find the optimal constituents and process settings to minimize corrosion.
+
+The goals of this project are as follows:
+
+1. Build machine learning models and use the best model to identify input values that minimize the output. This involves training models to predict the fraction of corroded surface per test as a function of the inputs.
+1. Understand which inputs are most important at causing the fraction of corroded surface to be less than 0.33. This involves identifying the best binary classifier.
+1. Train models that use a mixture of provided inputs and derived features to identify if the derived features are as important as subject matter experts believe they are.
+1. Understand if the machine used to manufacture coatings influences the test response.
+
+# Data Description (from Project Guidelines PDF)
+
+The inputs consist of three groups of variables:
+
+* Chemistry variables: `x1, x2, x3, x4`
+  * These are fractions between 0 and 1. Providing the proportion of a coating material constituted by the constituent.
+  * A "balance" constituent, `x5`, is also present in the coating material. The fraction associated with the balance is `x5 = 1 - (x1 + x2 + x3 + x4)`. This means a subset of the first four inputs must be selected to include in the model when `x5` is included because including all of them will cause one of their coefficients to be undefined because of singularities. That is, through x5, each can be written as having an exact linear relationship with the sum of all the others. This means the effect of one input variable can't be estimated when holding all the other input variables constant because the change in the one is a change in the others by definition.
+* Manufacturing process variables: `v1, v2, v3, v4, v5`
+  * These represent how chemical constituents are combined to create a coating.
+* Machine used to manufacture the coating: `m`
+  * A categorical variable.
+
+Derived features proposed by subject matter experts:
+* The "w" ratio: `w = x2 / (x3 + x4)`
+* The "z" ratio: `z = (x1 + x2) / (x4 + x5)`
+* The product of v1 and v2: `t = v1 * v2`
+
+The response variable (`output`) is the fraction of the specimen surface that corroded after the test completed.
+* Regression models will be trained to predict the logit-transformed response: `y`
+* Classification models will be trained to predict the threshold-transformed response: `outcome`
+
+Rows/observations correspond to a test result and its inputs.
+
+## Load Packages
+
+```{r, load_packages}
+library(tidyverse)
+library(splines)
+library(caret)
+```
+
+## Read Data, Derive Features, and Transform the Response
+
+```{r, read_data}
+df <- readr::read_csv('fall2022_finalproject.csv', col_names = TRUE)
+```
+
+```{r, derive_features_and_transform_response}
+df <- df %>% 
+  mutate(x5 = 1 - (x1 + x2 + x3 + x4),
+         w = x2 / (x3 + x4),
+         z = (x1 + x2) / (x5 + x4),
+         t = v1 * v2,
+         y = boot::logit(output),
+         outcome = ifelse(output < 0.33, 'event', 'non_event'),
+         outcome = factor(outcome, levels = c("event", "non_event")),
+         outcome_y = ifelse(outcome == 'event', 1, 0))
+
+df_nnet_reg <- df %>%
+  select(-outcome, -outcome_y, -output)
+```
+
+Before exploring the data, convert the data to long format for certain visualizations.
+
+```{r, long_format}
+lf <- df %>% 
+  tibble::rowid_to_column() %>% 
+  pivot_longer(c(x1, x2, x3, x4, v1, v2, v3, v4, v5, x5, w, z, t))
+```
+
+# Exploratory Data Analysis
+
+Take a look at the data.
+
+```{r, glimpse}
+df %>% glimpse()
+lf %>% glimpse()
+```
+
+There are 1,252 observations and 14 features
+
+## Visualize the Distribution of the Variables in the Dataset.
+
+Visualize the base and derived features.
+
+```{r, viz_distributions_features}
+lf %>% 
+  ggplot(mapping = aes(x = value)) +
+  geom_histogram(bins = 10) +
+  facet_wrap( ~ name, scales = "free")
+
+df %>%
+  ggplot(mapping = aes(x = m)) +
+  geom_bar()
+```
+
+Visualize the response variable
+
+```{r, viz_distributions_response}
+df %>%
+  ggplot(mapping = aes(x = output)) +
+  geom_histogram(bins = 20)
+
+df %>%
+  ggplot(mapping = aes(x = y)) +
+  geom_histogram(bins = 20)
+
+df %>%
+  ggplot(mapping = aes(x = outcome)) +
+  geom_bar(mapping = aes(y = stat(prop), group = 1))
+```
+
+The event of interest (less than .33 corrosion fraction) is unbalanced with the non-event (>= .33 corrosion fraction), but is not a rare event.
+
+## Visualize Conditional Distributions
+
+```{r, viz_distributions_categories}
+# Manufacturing process variables
+lf %>%
+  filter(grepl("v", name)) %>%
+  ggplot(mapping = aes(x = value)) +
+  geom_histogram(bins = 10) +
+  facet_grid(m ~ name, scales = "free")
+
+# Constituent variables
+lf %>% 
+  filter(grepl("x", name)) %>%
+  ggplot(mapping = aes(x = value)) +
+  geom_histogram(bins = 10) +
+  facet_grid(m ~ name, scales = "free")
+
+# Derived Features
+lf %>% 
+  filter(name %in% c("w", "z", "t")) %>%
+  ggplot(mapping = aes(x = value)) +
+  geom_histogram(bins = 10) +
+  facet_grid(m ~ name, scales = "free")
+
+# All features
+lf %>%
+  ggplot(mapping = aes(x = m, y = value)) +
+  geom_boxplot() +
+  facet_wrap( ~ name, scales = "free_y")
+
+# Response variables
+df %>%
+  ggplot(mapping = aes(x = output)) +
+  geom_histogram(bins = 20) +
+  facet_wrap( ~ m)
+
+df %>%
+  ggplot(mapping = aes(x = y)) +
+  geom_histogram(bins = 20) +
+  facet_wrap( ~ m)
+
+df %>%
+  ggplot(mapping = aes(x = m, fill = outcome)) +
+  geom_bar(position = 'fill') +
+  labs(y = "group proportion")
+
+```
+
+The distributions of the base and derived features and the response variables appear largely consistent across the different machines used in the manufacturing processes.
+
+## Visualize Relationships between Base and Derived Features
+
+```{r, viz_relationships_base_derived_features}
+# Correlation plot, no interactions
+df %>%
+  select(starts_with(c("x", "v")), "w", "t", "z") %>%
+  cor() %>%
+  corrplot::corrplot(type = 'upper', method = 'square',
+                     order = 'hclust', hclust.method = 'ward.D2')
+
+# correlation plot, interactions
+df_cont_feat <- df %>% select(-y, -output, -outcome, -outcome_y, -m)
+model.matrix( ~ .*. - 1, data = df_cont_feat)  %>%
+  cor() %>%
+  corrplot::corrplot(type = 'upper', method = 'square',
+                     order = 'hclust', hclust.method = 'ward.D2')
+
+# correlation plot, with some quadratic features
+df_quad_feat <- model.matrix(~ . + I(x1^2) + I(x5^2) + I(z^2) - 1, data = df_cont_feat)
+df_quad_feat %>%
+  cor() %>%
+  corrplot::corrplot(type = 'upper', method = 'square',
+                     order = 'hclust', hclust.method = 'ward.D2')
+```
+
+x5 and z appear highly anti-correlated.
+
+## Visualize Relationships between Features and Response Variable
+
+```{r, viz_input_output_relationships}
+lf %>%
+  ggplot(mapping = aes(x = value, y = y, color = m, fill = m)) +
+  geom_point() +
+  geom_smooth(size = 3, alpha = .5) +
+  facet_wrap( ~ name, scales = "free_x")
+
+df %>%
+  ggplot(mapping = aes(x = m, y = y)) +
+  geom_boxplot()
+```
+
+The relationship between the following features and the response variable, y, appear to be noise: t, v1, v2, v3, v4, v5, x2, and x4
+The following variables appear to have potentially interesting, non-linear (mostly quadratic) relationships with the response variable, y: w, x1, x2, x5, and z
+
+These observations appear to be independent of the machine used. The machine used also does not appear to affect the output y much.
+
+```{r, viz_inputs_event_relationship}
+lf %>%
+  ggplot(mapping = aes(x = value, y = outcome_y, color = m, fill = m)) +
+  geom_jitter(height = 0.02, width = 0) +
+  geom_smooth(formula = y ~ x,
+              method = glm,
+              method.args = list(family = 'binomial')) +
+  facet_wrap( ~ name, scale = "free_x")
+```
+
+There do not appear to be very strong linear relationships between the base and derived features and the binary outcome. Since some of the input-output relationships appeared to show a non-linear relationship, it makes sense to try visualizing non-linear relationships between the base and derived features and the binary outcome.
+
+```{r, viz_inputs_event_relationship_quadratic_cubic}
+lf %>%
+  ggplot(mapping = aes(x = value, y = outcome_y, color = m, fill = m)) +
+  geom_jitter(height = 0.02, width = 0) +
+  geom_smooth(formula = y ~ x + I(x^2),
+              method = glm,
+              method.args = list(family = 'binomial')) +
+  facet_wrap( ~ name, scale = "free_x")
+
+lf %>%
+  ggplot(mapping = aes(x = value, y = outcome_y, color = m, fill = m)) +
+  geom_jitter(height = 0.02, width = 0) +
+  geom_smooth(formula = y ~ x + I(x^2) + I(x^3),
+              method = glm,
+              method.args = list(family = 'binomial')) +
+  facet_wrap( ~ name, scale = "free_x")
+```
+
+These visualizations seem consistent with those of the continuous output, y. In particular, the quadratic model seems to simplify and make salient the relationship between the binary outcome and x1, x5, and z well. The cubic model points towards the idea that certain machines may interact with certain features, such as t, x4, and x3, though some of these cubic models have high uncertainty (e.g., for t).
+
+# Regression
+
+## Non-Bayesian Linear Models
+
+### Fitting Non-Bayesian Linear Models
+
+Start by fitting non-bayesian linear models 
+
+```{r, base_features_nb_linear_models}
+# all linear additive base features
+lm_1 <- lm(y ~ x1 + x2 + x3 + x4 + v1 + v2 + v3 + v4 + v5, data = df)
+summary(lm_1)
+# interaction of the categorical input with all continous inputs
+lm_2 <- lm(y ~ m*(x1 + x2 + x3 + x4 + v1 + v2 + v3 + v4 + v5), data = df)
+summary(lm_2)
+# all pair-wise interactions of the continuous inputs
+lm_3 <- lm(y ~ (x1 + x2 + x3 + x4 + v1 + v2 + v3 + v4 + v5)^2, data = df)
+```
+
+```{r, expanded_features_nb_linear_models}
+# all linear additive expanded feature set
+lm_4 <- lm(y ~ x1 + x3 + x4 + x5 + v1 + v2 + v3 + v4 + v5 + t + w + z, data = df)
+
+# interaction of the categorical input with all continuous features
+lm_5 <- lm(y ~ m*(x1 + x3 + x4 + x5 + v1 + v2 + v3 + v4 + v5 + t + w + z), data = df)
+
+# all pair-wise interactions of the continuous features
+lm_6 <- lm(y ~ (x1 + x3 + x4 + x5 + v1 + v2 + v3 + v4 + v5 + t + w + z)^2, data = df)
+```
+
+The following models try to fit more complex linear basis functions using splines with degrees of freedom equal to 3, 5, and 7. Natural splines depend on the degrees of freedom and the feature values only to derive new spline features that are weighted by the beta coefficients estimated for the linear model. Splines are selected for this application in an attempt to capture the both the obvious non-linear relationships between certain inputs and the response y as well as the slight variations in what appear to be mostly noisy relationships between other inputs and the response y.
+
+```{r, linear_basis_models}
+ndf_7 <- 3
+
+lm_7 <- lm(y ~ ns(t, ndf_7) + ns(v1, ndf_7) + ns(v2, ndf_7) + ns(v3, ndf_7) + ns(v4, ndf_7) + ns(v5, ndf_7) + ns(w, ndf_7) + ns(x1, ndf_7) + ns(x2, ndf_7) + ns(x3, ndf_7) + ns(x4, ndf_7) + ns(z, ndf_7), data = df)
+
+ndf_8 <- 5
+
+lm_8 <- lm(y ~ ns(t, ndf_8) + ns(v1, ndf_8) + ns(v2, ndf_8) + ns(v3, ndf_8) + ns(v4, ndf_8) + ns(v5, ndf_8) + ns(w, ndf_8) + ns(x1, ndf_8) + ns(x2, ndf_8) + ns(x3, ndf_8) + ns(x4, ndf_8) + ns(z, ndf_8), data = df)
+
+ndf_9 <- 7
+
+lm_9 <- lm(y ~ ns(t, ndf_9) + ns(v1, ndf_9) + ns(v2, ndf_9) + ns(v3, ndf_9) + ns(v4, ndf_9) + ns(v5, ndf_9) + ns(w, ndf_9) + ns(x1, ndf_9) + ns(x2, ndf_9) + ns(x3, ndf_9) + ns(x4, ndf_9) + ns(z, ndf_9), data = df)
+```
+
+### Evaluating Performance of Non-Bayesian Linear Models
+
+I will use BIC and AIC to identify the top three non-Bayesian linear models I fit.
+
+```{r, extract_metrics_func}
+extract_metrics <- function(mod_object, mod_name)
+{
+  broom::glance(mod_object) %>% 
+    mutate(model_name = mod_name)
+}
+
+extract_sig_coef <- function(mod_object)
+{
+  # Extract the p-values
+  p_values <- summary(mod_object)$coefficients[, 4]
+  
+  # Find the indices of the coefficients that have p-values less than .05
+  significant_indices <- which(p_values < 0.05)
+  
+  # Extract significant coefficients
+  significant_coefs <- summary(mod_object)$coefficients[c(significant_indices),]
+  significant_coefs
+}
+```
+
+```{r, evaluate_nblm}
+lm_mle_results <- purrr::map2_dfr(list(lm_1, lm_2, lm_3, lm_4,
+                                        lm_5, lm_6, lm_7, lm_8,
+                                        lm_9),
+                                   1:9,
+                                   extract_metrics)
+lm_mle_results %>% 
+  select(model_name, AIC, BIC) %>% 
+  pivot_longer(c(AIC, BIC)) %>% 
+  ggplot(mapping = aes(x = model_name, y = value)) +
+  geom_point(size = 5) +
+  facet_wrap(~name, scales = 'free_y') +
+  theme_bw()
+
+```
+
+The best three models appear to be the three splines models with 3, 5, and 7 degrees of freedom. More degrees of freedom improve performance according to the AIC and BIC in this application.
+
+### Visualize Coefficient Summaries
+
+```{r, viz_coef_summaries_lm}
+coefplot::coefplot(lm_7) + theme_bw() +
+  theme(legend.position = 'none')
+coefplot::coefplot(lm_8) + theme_bw() +
+  theme(legend.position = 'none')
+coefplot::coefplot(lm_9) + theme_bw() +
+  theme(legend.position = 'none')
+```
+
+These visualizations appear to demonstrate that the splines related to the manufacturing process variables rarely are statistically significant, while splines related to the w ratio, z ratio, and constituent inputs tend to be significant.
+
+### Identify Significant Features
+
+Let's evaluate the important inputs from each model
+
+```{r, nblm_coef_summaries}
+lm_7 %>% extract_sig_coef()
+lm_8 %>% extract_sig_coef()
+lm_9 %>% extract_sig_coef()
+```
+
+Across the models. Splines from z, x3, x2. x1, w tend to be significant. Different manufacturing process splines are important for different models without much in common between them, although v3 is relevant to two of them.
+
+## Bayesian Linear Models
+
+### Fitting Bayesian Linear Models
+
+```{r, load_rstanarm}
+library(rstanarm)
+```
+
+This section fits the two best non-Bayesian linear models according to AIC/BIC from the previous section with Bayesian techniques.
+
+```{r, fit_blm}
+options(mc.cores = parallel::detectCores())
+blm_8 <- stan_lm(y ~ ns(t, ndf_8) + ns(v1, ndf_8) + ns(v2, ndf_8) + ns(v3, ndf_8) + ns(v4, ndf_8) + ns(v5, ndf_8) + ns(w, ndf_8) + ns(x1, ndf_8) + ns(x2, ndf_8) + ns(x3, ndf_8) + ns(x4, ndf_8) + ns(z, ndf_8), data = df,
+                 prior = R2(location = 0.5),
+                 seed = 123456) 
+```
+
+```{r, fit_blm_9}
+blm_9 <- stan_lm(y ~ ns(t, ndf_9) + ns(v1, ndf_9) + ns(v2, ndf_9) + ns(v3, ndf_9) + ns(v4, ndf_9) + ns(v5, ndf_9) + ns(w, ndf_9) + ns(x1, ndf_9) + ns(x2, ndf_9) + ns(x3, ndf_9) + ns(x4, ndf_9) + ns(z, ndf_9), data = df,
+                 prior = R2(location = 0.5),
+                 seed = 123456)
+```
+
+### Evaluating Performance of Bayesian Linear Models
+
+```{r, eval_blms}
+waic_blm_8 <- waic(blm_8)
+waic_blm_9 <- waic(blm_9)
+loo_blm_8 <- loo(blm_8)
+loo_blm_9 <- loo(blm_9)
+blm_comp <- loo_compare(loo_blm_8, loo_blm_9)
+waic_model_weights_results <- loo_model_weights(list(`8` = loo_blm_8, `9` = loo_blm_9))
+waic_model_weights_results
+```
+
+According to model weighting derived from the LOOCV metric. blm_9 is a better Bayesian linear model than blm_8.
+
+The noise, $\sigma$, is the residual error of the model's mean trend. 
+
+```{r, viz_sigma_post}
+purrr::map2_dfr(list(blm_8, blm_9),
+                as.character(c(8, 9)),
+                function(mod, mod_name){as.data.frame(mod) %>% tibble::as_tibble() %>% 
+                    select(sigma) %>% 
+                    mutate(model_name = mod_name)}) %>% 
+  ggplot(mapping = aes(x = sigma)) +
+  geom_freqpoly(bins = 55,
+                 mapping = aes(color = model_name),
+                 size = 1.1) +
+  geom_vline(xintercept = summary(lm_9)$sigma) +
+  ggthemes::scale_color_colorblind("Model") +
+  theme_bw() 
+```
+
+The posterior uncertainty in the residual error is centered around 0.8. The MLE for lm_9 is close to the center of the posterior uncertainty for the Bayesian model formulation. The posterior seems quite certain about sigma. That is, the probable values for sigma are mostly contained within 0.05 units of the approximate center of 0.8.
+
+
+## Linear Model Predictions
+
+This function organizes predictions from the non-Bayesian linear models to visualize trends in the logit-transformed response, y, with respect to the inputs.
+
+```{r, tidy_predict_function}
+tidy_predict <- function(mod, xnew)
+{
+  pred_df <- predict(mod, xnew, interval = "confidence") %>% 
+    as.data.frame() %>% tibble::as_tibble() %>% 
+    dplyr::select(pred = fit, ci_lwr = lwr, ci_upr = upr) %>% 
+    bind_cols(predict(mod, xnew, interval = 'prediction') %>% 
+                as.data.frame() %>% tibble::as_tibble() %>% 
+                dplyr::select(pred_lwr = lwr, pred_upr = upr))
+  
+  xnew %>% bind_cols(pred_df)
+}
+```
+
+This chunk defines a grid of inputs to make predictions on with models lm_8 and lm_9. Since each of these models makes splines based off of 12 base and derived features in total, the grid will only be defined on those base and derived features that had splines that were identified as significant across both models.  The most significant splines seemed to come from z, w, and x2. Since both z and w contain x2 in some sense, this code chunk will define a grid of inputs over many values of z and w while holding all other inputs constant at their median value from the original data set. An important assumption here is that the trends visualized based on z and w, when they are not derived from true values of x1, x2, x3, x4, and x5, are representative of the trend based on z and w when they are derived from true values.
+
+```{r, make_viz_grid}
+viz_grid <- expand.grid(t = median(df$t),
+                        v1 = median(df$v1),
+                        v2 = median(df$v2),
+                        v3 = median(df$v3),
+                        v4 = median(df$v4),
+                        v5 = median(df$v5),
+                        w = seq(min(df$w), max(df$w), length.out = 9),
+                        x1 = median(df$x1),
+                        x2 = median(df$x2),
+                        x3 = median(df$x3),
+                        x4 = median(df$x4),
+                        z = seq(min(df$z), max(df$z), length.out = 101),
+                        KEEP.OUT.ATTRS = FALSE,
+                        stringsAsFactors = FALSE) %>% 
+  as.data.frame() %>% tibble::as_tibble()
+
+```
+
+```{r, lm_predictions}
+lm_pred_8 <- tidy_predict(lm_8, viz_grid)
+
+lm_pred_9 <- tidy_predict(lm_9, viz_grid)
+```
+
+```{r, viz_lm_predictions}
+lm_pred_8 %>% 
+  ggplot(mapping = aes(x = z)) +
+  geom_ribbon(mapping = aes(ymin = pred_lwr, ymax = pred_upr),
+              fill = 'orange') +
+  geom_ribbon(mapping = aes(ymin = ci_lwr, ymax = ci_upr),
+              fill = 'grey') +
+  geom_line(mapping = aes(y = pred),
+            color = 'black')  +
+  facet_wrap(~w, labeller = "label_both") +
+  theme_bw()
+
+lm_pred_9 %>% 
+  ggplot(mapping = aes(x = z)) +
+  geom_ribbon(mapping = aes(ymin = pred_lwr, ymax = pred_upr),
+              fill = 'orange') +
+  geom_ribbon(mapping = aes(ymin = ci_lwr, ymax = ci_upr),
+              fill = 'grey') +
+  geom_line(mapping = aes(y = pred),
+            color = 'black')  +
+  facet_wrap(~w, labeller = "label_both") +
+  theme_bw()
+```
+
+The predictive trends are consistent between the two non-Bayesian linear models, lm_8 and lm_9. 
+
+## Training Linear Models with Cross-Validation and Resampling
+
+The following code sets the number of folds and samples for training models with cross-validation and resampling
+
+```{r, set_lm_ctrl_metric}
+set.seed(123456)
+my_ctrl_lm <- trainControl(method = "repeatedcv", number = 10, repeats = 3)
+my_metric_lm <- 'RMSE'
+```
+
+The following code trains models of the additive effects of the base features (lm_1), the additive effects of the expanded feature set (lm_4), and the two spline models (lm_8 and lm_9)
+
+```{r, caret_lm_train}
+lm_1_caret <- train(as.formula(lm_1$model), 
+                    data = df,
+                    method = "lm",
+                    metric = my_metric_lm,
+                    preProcess = c("center", "scale"),
+                    trControl = my_ctrl_lm)
+
+lm_4_caret <- train(as.formula(lm_4$model),
+                    data = df,
+                    method = "lm",
+                    metric = my_metric_lm,
+                    trControl = my_ctrl_lm)
+
+lm_8_caret <- train(y ~ ns(t, 5) + ns(v1, 5) + ns(v2, 5) + ns(v3, 5) + 
+    ns(v4, 5) + ns(v5, 5) + ns(w, 5) + ns(x1, 5) + 
+    ns(x2, 5) + ns(x3, 5) + ns(x4, 5) + ns(z, 5),
+                    data = df,
+                    method = "lm",
+                    metric = my_metric_lm,
+    preProcess = c("center", "scale"),
+                    trControl = my_ctrl_lm)
+
+lm_9_caret <- train(y ~ ns(t, 7) + ns(v1, 7) + ns(v2, 7) + ns(v3, 7) + 
+    ns(v4, 7) + ns(v5, 7) + ns(w, 7) + ns(x1, 7) + 
+    ns(x2, 7) + ns(x3, 7) + ns(x4, 7) + ns(z, 7),
+                    data = df,
+                    method = "lm",
+                    metric = my_metric_lm,
+    preProcess = c("center", "scale"),
+                    trControl = my_ctrl_lm)
+```
+
+The below code trains regularized regression models with the elastic net penalty.
+
+```{r, regression_enet}
+lm_int_enet <- train(y ~ m*(x1 + x3 + x4 + x5 + v1 + v2 + v3 + v4 + v5 + t + w + z)^2,
+                    data = df,
+                    method = "glmnet",
+                    metric = my_metric_lm,
+                    preProcess = c("center", "scale"),
+                    trControl = my_ctrl_lm)
+
+lm_9_enet <- train(y ~ ns(t, 7) + ns(v1, 7) + ns(v2, 7) + ns(v3, 7) + 
+    ns(v4, 7) + ns(v5, 7) + ns(w, 7) + ns(x1, 7) + 
+    ns(x2, 7) + ns(x3, 7) + ns(x4, 7) + ns(z, 7),
+                    data = df,
+                    method = "glmnet",
+                    metric = my_metric_lm,
+    preProcess = c("center", "scale"),
+                    trControl = my_ctrl_lm)
+```
+
+## Training Models with Non-Linear Methods
+
+The below code trains a neural net on a custom tuning grid.
+
+```{r, regression_nnet}
+nnet_grid <- expand.grid(size = c(5,9,13,17),
+                         decay = exp(seq(-6, 0, length.out = 11)))
+
+nnet_base_reg <- caret::train(y ~ x1 + x2 + x3 + x4 + v1 + v2 + v3 + v4 + v5,
+                          data = df,
+                          method = 'nnet',
+                          metric = my_metric_lm,
+                          trControl = my_ctrl_lm,
+                          preProcess = c('center', 'scale'),
+                          trace = FALSE,
+                          tuneGrid = nnet_grid)
+
+nnet_exp_reg <- caret::train(y ~ x1 + x3 + x4 + x5 + v1 + v2 + v3 + v4 + v5 + t + w + z,
+                          data = df,
+                          method = 'nnet',
+                          metric = my_metric_lm,
+                          trControl = my_ctrl_lm,
+                          preProcess = c('center', 'scale'),
+                          trace = FALSE,
+                          tuneGrid = nnet_grid)
+```
+
+The below code trains a random forest model
+
+```{r, regression_rf}
+rf_base_reg <- train(y ~ x1 + x2 + x3 + x4 + v1 + v2 + v3 + v4 + v5,
+                     data = df,
+                     method = 'rf',
+                     metric = my_metric_lm,
+                     trControl = my_ctrl_lm,
+                     importance = TRUE)
+
+rf_exp_reg <- train(y ~ x1 + x3 + x4 + x5 + v1 + v2 + v3 + v4 + v5 + t + w + z,
+                    data = df,
+                    method = 'rf',
+                    metric = my_metric_lm,
+                    trControl = my_ctrl_lm,
+                    importance = TRUE)
+```
+
+The below code trains a gradient-boosted tree via XGBoost.
+
+```{r, regression_xgb}
+xgb_base_reg <- train(y ~ x1 + x2 + x3 + x4 + v1 + v2 + v3 + v4 + v5,
+                      data = df,
+                      method = 'xgbTree',
+                      trControl = my_ctrl_lm,
+                      metric = my_metric_lm,
+                      verbosity = 0)
+
+xgb_exp_reg <- train(y ~ x1 + x3 + x4 + x5 + v1 + v2 + v3 + v4 + v5 + t + w + z,
+                     data = df,
+                     method = 'xgbTree',
+                     trControl = my_ctrl_lm,
+                     metric = my_metric_lm,
+                     verbosity = 0)
+```
+
+
+## Linear Model Comparison
+
+The below code compares the linear models trained through cross-validation, resampling, and the elastic net penalty, as well as the neural networks and tree-based models.
+
+```{r, caret_comparisons}
+caret_rmse_compare <- resamples(list(base_add = lm_1_caret,
+                                    expanded_add = lm_4_caret,
+                                    splines_5_df = lm_8_caret,
+                                    splines_7_df = lm_9_caret,
+                                    expanded_int_enet = lm_int_enet,
+                                    splines_7_df_enet = lm_9_enet,
+                                    nnet_base = nnet_base_reg,
+                                    nnet_expanded = nnet_exp_reg,
+                                    rf_base = rf_base_reg,
+                                    rf_expanded = rf_exp_reg,
+                                    xgb_base = xgb_base_reg,
+                                    xgb_expanded = xgb_exp_reg))
+
+dotplot(caret_rmse_compare)
+
+```
+
+The best model, by MAE, RMSE, and Rsquared metrics, is the gradient-boosted tree trained on the expanded feature set.
+
+# Classification
+
+## Non-Bayesian Generalized Linear Models (GLMs)
+
+### Fitting Non-Bayesian GLMs
+
+This code fits non-Bayesian Generalized Linear Models. Which are linear models that generalize the linear predictor to a target variable through a link function. In this case, the link function is the logistic function. All models fit in this section follow the same model formulas specified in the Regression section, except for the fact that the likelihood function is a binomial distribution instead of a Gaussian distribution. Similarly, the models do not predict the logit-transformed output, y, nor do they predict the raw output (the corrosion fraction), but instead the models predict the probability the corrosion fraction is less than .33.
+
+```{r, base_features_nb_glm}
+# all linear additive base features
+glm_1 <- glm(outcome_y ~ x1 + x2 + x3 + x4 + v1 + v2 + v3 + v4 + v5, data = df, family = "binomial")
+
+# interaction of the categorical input with all continuous inputs
+glm_2 <- glm(outcome_y ~ m*(x1 + x2 + x3 + x4 + v1 + v2 + v3 + v4 + v5), data = df, family = "binomial")
+
+# all pair-wise interactions of the continuous inputs
+glm_3 <- glm(outcome_y ~ (x1 + x2 + x3 + x4 + v1 + v2 + v3 + v4 + v5)^2, data = df, family = "binomial")
+```
+
+```{r, expanded_features_nb_glm}
+# all linear additive expanded feature set
+glm_4 <- glm(outcome_y ~ x1 + x3 + x4 + x5 + v1 + v2 + v3 + v4 + v5 + t + w + z, data = df, family = "binomial")
+
+# interaction of the categorical input with all continuous features
+glm_5 <- glm(outcome_y ~ m*(x1 + x3 + x4 + x5 + v1 + v2 + v3 + v4 + v5 + t + w + z), data = df, family = "binomial")
+
+# all pair-wise interactions of the continuous features
+glm_6 <- glm(outcome_y ~ (x1 + x3 + x4 + x5 + v1 + v2 + v3 + v4 + v5 + t + w + z)^2, data = df, family = "binomial")
+```
+
+```{r, glm_basis_models}
+ndf_7 <- 3
+
+glm_7 <- glm(outcome_y ~ ns(t, ndf_7) + ns(v1, ndf_7) + ns(v2, ndf_7) + ns(v3, ndf_7) + ns(v4, ndf_7) + ns(v5, ndf_7) + ns(w, ndf_7) + ns(x1, ndf_7) + ns(x2, ndf_7) + ns(x3, ndf_7) + ns(x4, ndf_7) + ns(z, ndf_7), data = df, family = "binomial")
+
+ndf_8 <- 5
+
+glm_8 <- glm(outcome_y ~ ns(t, ndf_8) + ns(v1, ndf_8) + ns(v2, ndf_8) + ns(v3, ndf_8) + ns(v4, ndf_8) + ns(v5, ndf_8) + ns(w, ndf_8) + ns(x1, ndf_8) + ns(x2, ndf_8) + ns(x3, ndf_8) + ns(x4, ndf_8) + ns(z, ndf_8), data = df, family = "binomial")
+
+ndf_9 <- 7
+
+glm_9 <- glm(outcome_y ~ ns(t, ndf_9) + ns(v1, ndf_9) + ns(v2, ndf_9) + ns(v3, ndf_9) + ns(v4, ndf_9) + ns(v5, ndf_9) + ns(w, ndf_9) + ns(x1, ndf_9) + ns(x2, ndf_9) + ns(x3, ndf_9) + ns(x4, ndf_9) + ns(z, ndf_9), data = df, family = "binomial")
+```
+
+### Evaluating Performance of Non-Bayesian GLMs
+
+```{r, evaluate_nbglm}
+glm_mle_results <- purrr::map2_dfr(list(glm_1, glm_2, glm_3, glm_4,
+                                        glm_5, glm_6, glm_7, glm_8,
+                                        glm_9),
+                                   1:9,
+                                   extract_metrics)
+glm_mle_results %>% 
+  select(model_name, AIC, BIC) %>% 
+  pivot_longer(c(AIC, BIC)) %>% 
+  ggplot(mapping = aes(x = model_name, y = value)) +
+  geom_point(size = 5) +
+  facet_wrap(~name, scales = 'free_y') +
+  theme_bw()
+
+```
+
+The AIC/BIC metrics are consistent in terms of the top three models, but have the top two models switched. Since I am concerned with complexity and overfitting and the BIC metric penalizes complexity more than the AIC metric. I will choose the best model according to BIC, which is glm_8 (spline df = 5).
+
+### Visualizing Coefficient Summaries
+
+```{r, viz_coef_summaries_glm}
+coefplot::coefplot(glm_7) + theme_bw() +
+  theme(legend.position = 'none')
+coefplot::coefplot(glm_8) + theme_bw() +
+  theme(legend.position = 'none')
+coefplot::coefplot(glm_9) + theme_bw() +
+  theme(legend.position = 'none')
+```
+
+The coefficients appear different between the three spline models. From df = 3, to df = 5, to df = 7, some coefficients appear to get increasingly large in magnitude, with corresponding increases in standard error, which is somewhat disconcerting. glm_9 (df = 7) seems to primarily rely on z, x3, w, and the intercept. glm_8 (df = 5) similarly seems to value z, w, and the intercept but x1 instead of x3. glm_7 (df = 3) seems to somewhat rely on manufacturing process features,as well as w, z, x2, and x3.
+
+### Identifying Significant Features
+
+The below code prints the significant features for the top three GLMs.
+
+```{r, nbglm_coef_summaries}
+glm_7 %>% extract_sig_coef()
+glm_8 %>% extract_sig_coef()
+glm_9 %>% extract_sig_coef()
+```
+
+z is significant in all three models, but especially in glm_9. x1 and w are also significant in all three models. As seen in the visualization, manufacturing process variables are mostly significant in glm_7.
+
+## Bayesian Generalized Linear Models
+
+### Fitting Bayesian GLMs
+
+```{r, load_rstanarm_glm}
+library(rstanarm)
+```
+
+This section fits the two best non-Bayesian generalized linear models according to AIC/BIC from the previous section with Bayesian techniques. A Student t prior with 7 degrees of freedom and a scale of 2.5 will be used, which is "a reasonable default prior when coefficients should be close to zero but have some chance of being large" according to [this Stan vignette](https://mc-stan.org/rstanarm/articles/binomial.html)
+
+```{r, fit_bglm_8}
+options(mc.cores = parallel::detectCores())
+t_prior <- student_t(df = 7, location = 0, scale = 2.5) #
+bglm_8 <- stan_glm(outcome_y ~ ns(t, ndf_8) + ns(v1, ndf_8) + ns(v2, ndf_8) + ns(v3, ndf_8) + ns(v4, ndf_8) + ns(v5, ndf_8) + ns(w, ndf_8) + ns(x1, ndf_8) + ns(x2, ndf_8) + ns(x3, ndf_8) + ns(x4, ndf_8) + ns(z, ndf_8), data = df,
+                   family = binomial(link = "logit"),
+                   prior = t_prior, prior_intercept = t_prior,
+                   seed = 123456)
+```
+
+```{r, fit_bglm_9}
+bglm_9 <- stan_glm(outcome_y ~ ns(t, ndf_9) + ns(v1, ndf_9) + ns(v2, ndf_9) + ns(v3, ndf_9) + ns(v4, ndf_9) + ns(v5, ndf_9) + ns(w, ndf_9) + ns(x1, ndf_9) + ns(x2, ndf_9) + ns(x3, ndf_9) + ns(x4, ndf_9) + ns(z, ndf_9), data = df,
+                  family = binomial(link = "logit"),
+                  prior = t_prior, prior_intercept = t_prior,
+                  seed = 123456)
+```
+
+
+### Evaluating Performance of Bayesian Linear Models
+
+```{r, eval_bglms}
+waic_bglm_8 <- waic(bglm_8)
+waic_bglm_9 <- waic(bglm_9)
+loo_bglm_8 <- loo(bglm_8)
+loo_bglm_9 <- loo(bglm_9)
+bglm_comp <- loo_compare(loo_bglm_8, loo_bglm_9)
+waic_bglm_weights_results <- loo_model_weights(list(`8` = loo_bglm_8, `9` = loo_bglm_9))
+waic_bglm_weights_results
+```
+
+According to model weighting derived from the LOOCV metric. bglm_9 is a better Bayesian generalized linear model than bglm_8.
+
+## Generalized Linear Model Predictions
+

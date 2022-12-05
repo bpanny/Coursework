@@ -1,0 +1,174 @@
+---
+title: "M7 Data Analysis - Nonparametrics"
+author: "Benjamin Panny"
+date: 11/9/2021
+output:
+  html_document:
+    df_print: paged
+    toc: yes
+    toc_float: 
+      collapsed: true
+    number_sections: yes
+    fig_caption: yes
+    fig_width: 10
+    fig_height: 6.6
+    toc_depth: '3'
+    code_folding: show
+---
+
+```{r setup, include=FALSE}
+require(knitr)
+# Set so that long lines in R will be wrapped:
+opts_chunk$set(tidy.opts=list(width.cutoff=100),tidy=TRUE, echo = TRUE)
+
+#knitr::opts_chunk$set(echo = TRUE)
+library(tidyverse)
+library(DescTools)
+library(gridExtra)
+library(kableExtra)
+load("RA_treatment.RData", verbose=TRUE)
+ra$Biologics[which(ra$Biologics==1)] <- "Receiving Treatment"
+ra$Biologics[which(ra$Biologics==0)] <- "Not Receiving Treatment"
+ra$CDAI_YN[which(ra$CDAI_YN==1)] <- "CDAI not measured"
+ra$CDAI_YN[which(ra$CDAI_YN==2)] <- "CDAI measured"
+```
+# Part 1: CDAI and Treatment with Biologics
+
+## Numerical and Visual Summary
+
+```{r num and vis p1}
+
+kableExtra::kable(summarize(ra, CDAI_nNA = sum(is.na(cdai)), mean = mean(cdai, na.rm=TRUE),SD = sd(cdai, na.rm=TRUE), 
+              median = median(cdai, na.rm=TRUE), 
+              IQR = quantile(cdai, 0.75, na.rm=TRUE)-quantile(cdai, 0.25, na.rm=TRUE),
+              min = min(cdai, na.rm=TRUE),
+              max = max(cdai, na.rm=TRUE)), digits = 3, "simple", caption="Table 1: Numerical summary of CDAI (arbitrary units (>10 and <23 indicates moderate disease activity))" )
+
+f <- ggplot(ra %>% drop_na(Biologics),aes(x = Biologics, y = cdai, na.rm=TRUE))
+
+
+f + geom_boxplot() + xlab("Biologic Treatment Status") + ylab("Clinical Disease Activity Indicator Score") +ggtitle("Figure 1: Boxplot of CDAI by Biologics Group")
+
+ggplot(ra %>% drop_na(Biologics,cdai), aes(x=cdai)) + geom_histogram(binwidth=3,fill='red',color='black') + facet_wrap(~Biologics) + theme_classic() + xlab("Clinical Disease Activity Indicator Score (arbitrary units)") + ggtitle("Figure 2: Histogram of CDAI by Biologics Group")
+
+qqnorm(ra$cdai, ylab = "CDAI")
+qqline(ra$cdai)
+```
+
+## Null and Alternative Hypotheses
+
+The null hypothesis is that the population median from the group without biologics is the same as the population median from the group with biologics.
+
+The alternative hypothesis is that the population median from the group without biologics is different than the population median from the group with biologics.
+
+
+## Conditions for a Wilcoxon rank sum test
+
+Two independent random samples: we will assume the participants in each sample (biologic or no biologic) are independent
+Population Distributions have the same shape: As can be seen in Figure 2, the sample distributions are roughly the same shape and we will assume the populations are similar as well.
+
+## Wilcoxon Rank-Sum Test and P-value with Interpretation
+
+The W statisticsis 4830.5, indicating a difference between median CDAI scores between groups. The p-value is 0.2684,  which indicates a 26.84% chance of observing the differences in CDAI scores we observed if the population median of the group with biologics is the same as the population median of the group without biologics.
+
+```{r wil rs test}
+wilcox.test(ra$cdai ~ ra$Biologics)
+```
+## Statistical Decision and Conclusion with Potential for Alternative Test
+
+Due to a statistically insignificant p-value (p =.268 > .05), we fail to reject the null hypothesis that the population median of the group without biologics is the same as the population median of the group with biologics. We have no evidence to suggest that the population median of the group without biologics is different from the population median of the group with biologics. Therefore, we have no evidence to suggest an association between biologics and clinical disease activity indicator score.
+
+We could have used a two-sample t-test here to test for a difference in the average CDAI score between treatment groups. That is, the samples are random and independent, and they are also large enough (each greater than 30) to use in spite of not being normally distributed outside of the first standard deviation (they are right skewed). 
+
+# Part 2. Age and CDAI
+
+## Numerical and Visual Summary
+
+```{r num and vis p2}
+
+tbl <- table(ra$AgeGp, ra$CDAI_YN)
+rownames(tbl) <- c("40-70 Years Old","75+ Years Old")
+kableExtra::kable(tbl ,digits = 3, "simple", caption="Table 2: Number of Patients with CDAI Measured By Age Group")   
+
+ggplot(ra %>% drop_na(CDAI_YN,Age), aes(x=Age)) + geom_histogram(binwidth=2,fill='blue',color='black') + facet_wrap(~CDAI_YN) + theme_classic() + xlab("Age (Years)") + ggtitle("Figure 2: Histogram of Age by CDAI Measurement")
+
+```
+
+## Null and Alternative Hypotheses
+
+The null hypothesis is that CDAI measurement is not associated with age group.
+
+The alternative hypothesis is that CDAI measurement is associated with age group.
+
+## Conditions for Fisher's Exact Test
+
+Simple random sample: we will assume the participants in our sample are randomly selected.
+
+## P-value with Interpretation and Statistical Decision.
+
+There is no test statistic for a Fisher's exact test. The p-value is roughly 0.00012. This indicates a 0.012% chance of observing the counts we observe if CDAI measurement is not associated with age group. Due to a statistically significant p-value (p <.001), we reject the null hypothesis CDAI measurement is not associated with age group.
+
+```{r fishers exact test}
+
+m <- matrix(c(193,13,266,58), nrow = 2)
+fisher.test(m)
+
+```
+## Conclusion with Potential for chi-squared test
+
+We have very strong evidence to suggest that CDAI measurement is associated with age group. The odds ratio is 3.23, indicating the likelihood of having CDAI measured in the 40-70 years old group is 3.23 times more likely than in the 75+ years old group.
+
+We could have used a chi square test of independence. Since the hypotheses regarding association are the same and the expected cell counts are greater than 5.
+
+# Part 3. Age and Treatment with Biologics
+
+## Numerical and Visual Summary
+
+```{r num and vis p3}
+
+tbl <- table(ra$AgeGp, ra$Biologics)
+rownames(tbl) <- c("40-70 Years Old","75+ Years Old")
+kableExtra::kable(tbl ,digits = 3, "simple", caption="Table 3: Number of Patients with Biologic Treatment By Age Group")   
+
+ggplot(ra %>% drop_na(Biologics,Age), aes(x=Age)) + geom_histogram(binwidth=2,fill='blue',color='black') + facet_wrap(~Biologics) + theme_classic() + xlab("Age (Years)") + ggtitle("Figure 3: Histogram of Age by Biologic Treatment")
+
+```
+
+## Null and Alternative Hypotheses
+
+The null hypothesis is that biologics treatment status is not associated with age group.
+
+The alternative hypothesis is that biologics treatment status is associated with age group.
+
+## Conditions for Fisher's Exact Test
+
+Simple random sample: we will assume the participants in our sample are randomly selected.
+
+## P-value with Interpretation and Statistical Decision.
+
+There is no test statistic for a Fisher's exact test. The p-value is roughly 0.0000089. This indicates a 0.00089% chance of observing the counts we observe if biologics treatment status is not associated with age group. Due to a statistically significant p-value (p <.001), we reject the null hypothesis that biologics treatment status is not associated with age group.
+
+```{r fishers exact test for p3}
+
+m <- matrix(c(272,60,187,10), nrow = 2)
+fisher.test(m)
+
+```
+## Conclusion with Potential for chi-squared test
+
+We have very strong evidence to suggest that biologics treatment is associated with age group. The odds ratio is 0.243, indicating the likelihood of having biologics treatment in the 40-70 years old group is .243 times that of the likelihood of having biologics treatment in the 75+ years old group.
+
+We could have used a chi square test of independence. Since the hypotheses regarding association are the same and the expected cell counts are greater than 5.
+
+# Part 4: Comment on Missing Data
+
+A missing value for CDAI indicates the measurement wasn't performed. Our findings in parts 2 and 3 indicate that people are significantly more likely to have CDAI measured in 40-70 year olds than in 75+ year olds and significantly less likely to have biologics treatment in 40-70 years olds than in 75+ year olds.
+
+In part 1, observations were paired observations within each subject. That is, our sample merged age groups. At the same time that we merged age groups into the same sample, we diluted any potential association between CDAI and biologics use, since the age group with more measurements was less likely to have biologics treatment. If there was no measurement bias and we were interested in all ages, then we could believe the result of our test in part 1. Given the measurement bias and odds ratio of biologics prescription between age groups, it would be wise to perform our statistical hypothesis test from part 1 filtered by the age group of 75+ years, since they clearly come from a different population than those in the 40-70 year old age group.
+
+# Session Information
+
+```{r}
+sessionInfo()
+```
+

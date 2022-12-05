@@ -1,0 +1,225 @@
+---
+title: "INFSCI 2595 Fall 2022 Final Project Classification"
+author: "Benjamin Panny"
+date: "Submission time: December 13, 2022 at 11:00PM EST"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+# Project Overview (from Project Guidelines PDF)
+
+Surface coating helps materials people interact with last longer.
+
+Coating is created by combining constituent materials together.
+
+Constituents are combined in a manufacturing process following a specific set of operating conditions.
+
+Coating is applied to a specimen and the speciment is subjected to an accelerated life test.
+
+An accelerated life test includes conditions such as extreme temperatures and humidity for extended periods of time. These tests simulate years of typical material use. The outcome of these tests is the amount of corroded surface.
+
+The aim of experimenting with surface coatings is to minimize the amount of corroded surface after the accelerated life test. Experiments can be augmented by training machine learning models that find the optimal constituents and process settings to minimize corrosion.
+
+The goals of this project are as follows:
+
+1. Build machine learning models and use the best model to identify input values that minimize the output. This involves training models to predict the fraction of corroded surface per test as a function of the inputs.
+1. Understand which inputs are most important at causing the fraction of corroded surface to be less than 0.33. This involves identifying the best binary classifier.
+1. Train models that use a mixture of provided inputs and derived features to identify if the derived features are as important as subject matter experts believe they are.
+1. Understand if the machine used to manufacture coatings influences the test response.
+
+# Data Description (from Project Guidelines PDF)
+
+The inputs consist of three groups of variables:
+
+* Chemistry variables: `x1, x2, x3, x4`
+  * These are fractions between 0 and 1. Providing the proportion of a coating material constituted by the constituent.
+  * A "balance" constituent, `x5`, is also present in the coating material. The fraction associated with the balance is `x5 = 1 - (x1 + x2 + x3 + x4)`. This means a subset of the first four inputs must be selected to include in the model when `x5` is included because including all of them will cause one of their coefficients to be undefined because of singularities. That is, through x5, each can be written as having an exact linear relationship with the sum of all the others. This means the effect of one input variable can't be estimated when holding all the other input variables constant because the change in the one is a change in the others by definition.
+* Manufacturing process variables: `v1, v2, v3, v4, v5`
+  * These represent how chemical constituents are combined to create a coating.
+* Machine used to manufacture the coating: `m`
+  * A categorical variable.
+
+Derived features proposed by subject matter experts:
+* The "w" ratio: `w = x2 / (x3 + x4)`
+* The "z" ratio: `z = (x1 + x2) / (x4 + x5)`
+* The product of v1 and v2: `t = v1 * v2`
+
+The response variable (`output`) is the fraction of the specimen surface that corroded after the test completed.
+* Regression models will be trained to predict the logit-transformed response: `y`
+* Classification models will be trained to predict the threshold-transformed response: `outcome`
+
+Rows/observations correspond to a test result and its inputs.
+
+## Load Packages
+
+```{r, load_packages}
+library(tidyverse)
+library(splines)
+library(caret)
+```
+
+## Read Data, Derive Features, and Transform the Response
+
+```{r, read_data}
+df <- readr::read_csv('fall2022_finalproject.csv', col_names = TRUE)
+```
+
+```{r, derive_features_and_transform_response}
+df <- df %>% 
+  mutate(x5 = 1 - (x1 + x2 + x3 + x4),
+         w = x2 / (x3 + x4),
+         z = (x1 + x2) / (x5 + x4),
+         t = v1 * v2,
+         y = boot::logit(output),
+         outcome = ifelse(output < 0.33, 'event', 'non_event'),
+         outcome = factor(outcome, levels = c("event", "non_event")),
+         outcome_y = ifelse(outcome == 'event', 1, 0))
+
+df_nnet_reg <- df %>%
+  select(-outcome, -outcome_y, -output)
+```
+
+Before exploring the data, convert the data to long format for certain visualizations.
+
+```{r, long_format}
+lf <- df %>% 
+  tibble::rowid_to_column() %>% 
+  pivot_longer(c(x1, x2, x3, x4, v1, v2, v3, v4, v5, x5, w, z, t))
+```
+
+
+# Classification
+
+## Non-Bayesian Generalized Linear Models (GLMs)
+
+### Fitting Non-Bayesian GLMs
+
+This code fits non-Bayesian Generalized Linear Models. Which are linear models that generalize the linear predictor to a target variable through a link function. In this case, the logistic function. All models fit in this section follow the same model formulas specified in the Regression section, except for the fact that the likelihood function is a binomial distribution instead of a Gaussian distribution. Similarly, the models do not predict the logit-transformed output, y, nor do they predict the raw output (the corrosion fraction), but instead the models predict the probability of the corrosion fraction being less than .33.
+
+```{r, base_features_nb_glm}
+# all linear additive base features
+glm_1 <- glm(outcome_y ~ x1 + x2 + x3 + x4 + v1 + v2 + v3 + v4 + v5, data = df, family = "binomial")
+
+# interaction of the categorical input with all continuous inputs
+glm_2 <- glm(outcome_y ~ m*(x1 + x2 + x3 + x4 + v1 + v2 + v3 + v4 + v5), data = df, family = "binomial")
+
+# all pair-wise interactions of the continuous inputs
+glm_3 <- glm(outcome_y ~ (x1 + x2 + x3 + x4 + v1 + v2 + v3 + v4 + v5)^2, data = df, family = "binomial")
+```
+
+```{r, expanded_features_nb_glm}
+# all linear additive expanded feature set
+glm_4 <- glm(outcome_y ~ x1 + x3 + x4 + x5 + v1 + v2 + v3 + v4 + v5 + t + w + z, data = df, family = "binomial")
+
+# interaction of the categorical input with all continuous features
+glm_5 <- glm(outcome_y ~ m*(x1 + x3 + x4 + x5 + v1 + v2 + v3 + v4 + v5 + t + w + z), data = df, family = "binomial")
+
+# all pair-wise interactions of the continuous features
+glm_6 <- glm(outcome_y ~ (x1 + x3 + x4 + x5 + v1 + v2 + v3 + v4 + v5 + t + w + z)^2, data = df, family = "binomial")
+```
+
+```{r, glm_basis_models}
+ndf_7 <- 3
+
+glm_7 <- glm(outcome_y ~ ns(t, ndf_7) + ns(v1, ndf_7) + ns(v2, ndf_7) + ns(v3, ndf_7) + ns(v4, ndf_7) + ns(v5, ndf_7) + ns(w, ndf_7) + ns(x1, ndf_7) + ns(x2, ndf_7) + ns(x3, ndf_7) + ns(x4, ndf_7) + ns(z, ndf_7), data = df, family = "binomial")
+
+ndf_8 <- 5
+
+glm_8 <- glm(outcome_y ~ ns(t, ndf_8) + ns(v1, ndf_8) + ns(v2, ndf_8) + ns(v3, ndf_8) + ns(v4, ndf_8) + ns(v5, ndf_8) + ns(w, ndf_8) + ns(x1, ndf_8) + ns(x2, ndf_8) + ns(x3, ndf_8) + ns(x4, ndf_8) + ns(z, ndf_8), data = df, family = "binomial")
+
+ndf_9 <- 7
+
+glm_9 <- glm(outcome_y ~ ns(t, ndf_9) + ns(v1, ndf_9) + ns(v2, ndf_9) + ns(v3, ndf_9) + ns(v4, ndf_9) + ns(v5, ndf_9) + ns(w, ndf_9) + ns(x1, ndf_9) + ns(x2, ndf_9) + ns(x3, ndf_9) + ns(x4, ndf_9) + ns(z, ndf_9), data = df, family = "binomial")
+```
+
+### Evaluating Performance of Non-Bayesian GLMs
+
+```{r, evaluate_nbglm}
+glm_mle_results <- purrr::map2_dfr(list(glm_1, glm_2, glm_3, glm_4,
+                                        glm_5, glm_6, glm_7, glm_8,
+                                        glm_9),
+                                   1:9,
+                                   extract_metrics)
+glm_mle_results %>% 
+  select(model_name, AIC, BIC) %>% 
+  pivot_longer(c(AIC, BIC)) %>% 
+  ggplot(mapping = aes(x = model_name, y = value)) +
+  geom_point(size = 5) +
+  facet_wrap(~name, scales = 'free_y') +
+  theme_bw()
+
+```
+
+The AIC/BIC metrics are consistent in terms of the top three models, but have the top two models switched. Since I am concerned with complexity and overfitting and the BIC metric penalizes complexity more than the AIC metric. I will choose the best model according to BIC, which is glm_8 (spline df = 5).
+
+### Visualizing Coefficient Summaries
+
+```{r, viz_coef_summaries}
+coefplot::coefplot(glm_7) + theme_bw() +
+  theme(legend.position = 'none')
+coefplot::coefplot(glm_8) + theme_bw() +
+  theme(legend.position = 'none')
+coefplot::coefplot(glm_9) + theme_bw() +
+  theme(legend.position = 'none')
+```
+
+The coefficients appear different between the three spline models. From df = 3, to df = 5, to df = 7, some coefficients appear to get increasingly large in magnitude, with corresponding increases in magnitude, which is somewhat disconcerting. glm_9 (df = 7) seems to primarily rely on z, x3, w, and the intercept. glm_8 (df = 5) similarly seems to value z, w, and the intecept but x1 instead of x3. glm_7 (df = 3) seems to rely minorly on manufacturing process features,as well as w, z, x2, and x3.
+
+### Identifying Significant Features
+
+The below code prints the significant features for the top three GLMs.
+
+```{r, nblm_coef_summaries}
+glm_7 %>% extract_sig_coef()
+glm_8 %>% extract_sig_coef()
+glm_9 %>% extract_sig_coef()
+```
+
+z is significant in all three models, but especially to glm_9. x1 and w are also significant in all three models. As seen in the visualization, manufacturing process variables are mostly significant in glm_7.
+
+## Bayesian Generalized Linear Models
+
+### Fitting Bayesian GLMs
+
+```{r, load_rstanarm_glm}
+library(rstanarm)
+```
+
+This section fits the two best non-Bayesian generalized linear models according to AIC/BIC from the previous section with Bayesian techniques. A Student t prior with 7 degrees of freedom and a scale of 2.5 will be used, which is "a reasonable default prior when coefficients should be close to zero but have some chance of being large" according to [this Stan vignette](https://mc-stan.org/rstanarm/articles/binomial.html)
+
+```{r, fit_bglm_8}
+options(mc.cores = parallel::detectCores())
+t_prior <- student_t(df = 7, location = 0, scale = 2.5) #
+bglm_8 <- stan_glm(outcome_y ~ ns(t, ndf_8) + ns(v1, ndf_8) + ns(v2, ndf_8) + ns(v3, ndf_8) + ns(v4, ndf_8) + ns(v5, ndf_8) + ns(w, ndf_8) + ns(x1, ndf_8) + ns(x2, ndf_8) + ns(x3, ndf_8) + ns(x4, ndf_8) + ns(z, ndf_8), data = df,
+                   family = binomial(link = "logit"),
+                   prior = t_prior, prior_intercept = t_prior,
+                   seed = 123456)
+```
+
+```{r, fit_bglm_9}
+bglm_9 <- stan_glm(outcome_y ~ ns(t, ndf_9) + ns(v1, ndf_9) + ns(v2, ndf_9) + ns(v3, ndf_9) + ns(v4, ndf_9) + ns(v5, ndf_9) + ns(w, ndf_9) + ns(x1, ndf_9) + ns(x2, ndf_9) + ns(x3, ndf_9) + ns(x4, ndf_9) + ns(z, ndf_9), data = df,
+                  family = binomial(link = "logit"),
+                  prior = t_prior, prior_intercept = t_prior,
+                  seed = 123456)
+```
+
+
+### Evaluating Performance of Bayesian Linear Models
+
+```{r, eval_bglms}
+waic_bglm_8 <- waic(bglm_8)
+waic_bglm_9 <- waic(bglm_9)
+loo_bglm_8 <- loo(bglm_8)
+loo_bglm_9 <- loo(bglm_9)
+bglm_comp <- loo_compare(loo_bglm_8, loo_bglm_9)
+waic_bglm_weights_results <- loo_model_weights(list(`8` = loo_bglm_8, `9` = loo_bglm_9))
+waic_bglm_weights_results
+```
+
+According to model weighting derived from the LOOCV metric. bglm is a better Bayesian generalized linear model than bglm_8.
+
+## Generalized Linear Model Predictions
+

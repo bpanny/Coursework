@@ -1,0 +1,168 @@
+---
+title: "M5 Data Analysis: Contingency Tables"
+author: "Benjamin Panny"
+date: 10/24/2021
+output:
+  html_document:
+    df_print: paged
+    toc: yes
+    toc_float: 
+      collapsed: true
+    number_sections: yes
+    fig_caption: yes
+    fig_width: 10
+    fig_height: 6.6
+    toc_depth: '3'
+    code_folding: show
+---
+
+```{r,echo=FALSE,message=FALSE,warning=FALSE}
+require(knitr)
+# Set so that long lines in R will be wrapped:
+opts_chunk$set(tidy.opts=list(width.cutoff=100),tidy=TRUE)
+
+#knitr::opts_chunk$set(echo = TRUE)
+library(tidyverse)
+library(DescTools)
+library(gridExtra)
+
+load("LungCancer.RData", verbose=TRUE)
+load("mamexp.RData", verbose=TRUE)
+white=nrow(filter(lungcancer,race=="White"))
+hisp=nrow(filter(lungcancer,race=="Hispanic"))
+asian=nrow(filter(lungcancer,race=="Asian"))
+black=nrow(filter(lungcancer,race=="Black"))
+americanin=nrow(filter(lungcancer,race=="AmericanIn"))
+```
+
+# Lung Cancer
+
+## Numerical and Visual Summary of the Data by Racial/Ethnic Group
+
+```{r numerical and visual summary by racial/ethnic group}
+
+tbl <- matrix(c(75.6,3855,9.1,60,10.8,316,3.8,54,0.7,12),nrow=2)
+numsum <- sum(tbl[2,])
+tbl <- rbind(tbl,c(3855/numsum*100,60/numsum*100,316/numsum*100,54/numsum*100,12/numsum*100))
+tbl <- cbind(tbl,c(sum(tbl[1,]),sum(tbl[2,]),sum(tbl[3,])))
+tbl <- round(tbl,digits=2)
+rownames(tbl) <- list("Distribution of Population (%)","Number in Lung Cancer Clinical Trials", "Distribution of Population in Lung Cancer Clinical Trials (%)")
+colnames(tbl) <- list("White non-Hispanic", "Hispanic", "Black", "Asian / Pacific Islander", "American Indian / Alaska Native", "Total")
+kableExtra::kable(tbl, "simple")
+ggplot(data = lungcancer, mapping = aes(x=race,fill=race)) + geom_bar(show.legend=F)+ theme_classic()+
+   stat_count(aes(label = sprintf("%.02f %%", ..count../sum(..count..)*100)), geom = 'text', vjust = 1, color="red") +# add percent text
+ ggtitle("Distribution of Population in Lung Cancer Clinical Trials by Race/Ethnicity") + xlab("Race")
+ggplot(data=as.data.frame(c("White","White","Hispanic","Hispanic", "Black","Black", "Asian","Asian", "AmericanIn","AmericanIn")),aes(x=c("White","WhiteCT","Hispanic","HispanicCT", "Black","BlackCT", "Asian","AsianCT", "AmericanIn","AmericanInCT"),y=c(75.6,89.71,9.1,1.4,10.8,7.35,3.8,1.26,0.7,0.28))) +geom_col(fill=c("red","blue","orange","black", "purple","green", "grey","yellow", "brown","pink")) + ggtitle("Distribution of General Population and \nPopulation in Lung Cancer Clinical Trials (CT)") + xlab("General Population and CT Population Races") + ylab("Percentage of General or Clinical Trial (CT) Population") + theme_classic() + scale_y_continuous(limits=c(0,100),breaks=c(2,5,10,15,20,30,40,50,60,70,80,90,100))
+
+```
+
+## The Null and Alternative Hypotheses
+
+The null hypothesis is that there is no difference between racial/ethnic makeups  of the general population and lung cancer clinical trial populations. The alternative hypothesis is that there is at least one racial/ethnic group that is over- or under-represented in lung cancer clinical trials
+
+## Conditions for Chi-squared Goodness-of-Fit Hypothesis Test
+
+We first check the conditions for a two-sided Chi-squared Goodness-of-fit Test, since we observe the population in lung cancer trials and would like to compare it with the hypothesized population (that we set according to the general population proportions).
+
+We will assume a simple random sample, or that the given data represents the total population of lung cancer clinical trial participants.
+
+Additionally, every group has an expected count of at least 5, given by the below code testing whether each hypothesized population proportion multiplied by the sample size (n=4297) is more than 5.
+
+```{r expected counts}
+prop = c(.7560, .091, .1080, .0380, .0070)
+prop*4297 > 5
+
+```
+
+## Test Statistic and P-Value with Interpretation
+
+The two-sided chi-square goodness-of-fit statistic with four degrees of freedom is equal to 524.71 indicating a difference between observed and expected values. Our p-value of less than 2.2 * 10^16 indicates there is a 2.2 * 10^14 percent chance that we would observe this result due to chance if each of the racial/ethnic population proportions in lung cancer clinical trial participants was equal to the respective proportions in the general population. 
+
+```{r goodness-of-fit}
+chisq.test(x = c(white,hisp,black,asian,americanin), p = prop)
+
+```
+## Statistical Decision and Conclusion
+
+Due to the highly compelling p-value (p < 0.0001), we reject the null hypothesis. We have very strong evidence that the racial/ethnic distribution of lung cancer clinical trial participants does not match that of the general population.
+
+# Mammography
+
+## The Null and Alternative Hypotheses
+
+The null hypothesis is that a women's mammography experience is independent of her family history of breast cancer. The alternative hypothesis is that a women's mammography experience is dependent upon her family history of breast cancer.
+
+## Conditions for Chi-squared Test of Independence
+
+We first check the conditions for a Chi-squared Test of Independence, since we observe both variables of interest in each study participant.
+
+We will assume a simple random sample, or that the given data represents the total population of lung cancer clinical trial participants.
+
+Additionally, every group has an expected count of at least 5, given by the below code testing this condition.
+
+```{r expected counts ind}
+tblorig = matrix(c(nrow(filter(mamexp, me=="never",famhist=="no")),nrow(filter(mamexp, me=="<1 year",famhist=="no")),nrow(filter(mamexp, me==">1 year",famhist=="no")),nrow(filter(mamexp, me=="never",famhist=="yes")),nrow(filter(mamexp, me=="<1 year",famhist=="yes")),nrow(filter(mamexp, me==">1 year",famhist=="yes"))),nrow=3)
+tbl <- cbind(tblorig,c(sum(tbl[1,]),sum(tbl[2,]),sum(tbl[3,])))
+tbl <- rbind(tbl,c(sum(tbl[,1]),sum(tbl[,2]),sum(tbl[,3])))
+
+colnames(tbl) <- list("No", "Yes", 'Total')
+rownames(tbl) <- list("Never", "<1 Year", ">1 Year", "Total")
+kableExtra::kable(tbl,"simple",caption="Family History of Breast Cancer by Personal Mammography Experience")
+
+exp_tbl = matrix(round(c(tbl[1,3]*tbl[4,1]/412,tbl[2,3]*tbl[4,1]/412,tbl[3,3]*tbl[4,1]/412,tbl[1,3]*tbl[4,2]/412,tbl[2,3]*tbl[4,2]/412,tbl[3,3]*tbl[4,2]/412),digits=2),nrow=3)
+exp_tbl <- rbind(exp_tbl,c(tbl[4,1],tbl[4,2]))
+exp_tbl <- cbind(exp_tbl,c(tbl[,3]))
+colnames(exp_tbl)<- list("No", "Yes", 'Total')
+kableExtra::kable(exp_tbl,"simple",caption="Expected Counts of Family History of Breast Cancer by Personal Mammography Experience")
+```
+
+## Test Statistic and P-Value with Interpretation
+
+The chi-square independence test statistic with 2 degrees of freedom is equal to 13.05, indicating a difference between observed and expected values. Our p-value of .0015 indicates there is a 0.15% percent chance that we would observe this result due to chance if personal mammography experience is independent of family history of breast cancer.
+
+
+```{r chi square independence statistic and p value}
+
+chisq.test(tblorig,correct=FALSE)
+
+```
+
+## Statistical Decision and Conclusion
+
+Due to a statistically significant p-value (p = .0015 < .01), we reject the null hypothesis that personal mammography experience is independent of family history of breast cancer. We have strong evidence to suggest that personal mammography experience is dependent on family history of breast cancer.
+
+# Hip Protectors
+
+## The Null and Alternative Hypotheses
+
+The null hypothesis is that the proportion of hip fractures with the protectors worn is the same as the proportion of hip fractures without the protectors worn. The alternative hypothesis is that the proportion of hip fractures with the protectors worn is significantly different from the proportion of hip fractures without the protectors worn.
+
+## Conditions for McNemar's Test
+
+We will perform a McNemar's Test. We will assume this set of dependent observations is a simple random sample of nursing home fractures. We also note that the sum of fracture/no-fractures pairs is 25, which is greater than 10, meeting the condition that the sum of success/failures pairs is greater than 10.
+
+## McNemar's Test (Q) Statistic and P-Value with Interpretation
+
+The Q Statistic is equal to 1. This means there is a slight difference between the observed proportion of fractures in protected hips and the observed proportion of fractures in unprotected hips. The p-value 0.3173 indicates there is a 31.73 percent chance that we would observe this result due to chance if the proportion of broken protected hips is the same as the proportion of broken unprotected hips.
+
+```{r hip protectors}
+
+tbl <- matrix(c(309,15,10,2),nrow=2)
+tbl
+mcnemar.test(tbl, correct=F)
+
+```
+
+## Statistical Decision and Conclusion
+
+Due to a non-statistically significant p-value (p = .32 > .05), we fail to reject the null hypothesis that the proportion of broken protected hips is the same as the proportion of broken unprotected hips. We do not have evidence to suggest that the proportion of broken protected hips is significantly different from the proportion of broken unprotected hips.
+
+
+```{r stat decision and conclu for hips}
+
+
+# Session Information
+
+```{r}
+sessionInfo()
+```
