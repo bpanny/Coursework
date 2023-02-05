@@ -5,8 +5,8 @@ date: "Submission time: December 13, 2022 at 11:00PM EST"
 output: html_document
 ---
 
-```{r setup, include=FALSE}
-knitr::opts_chunk$set(echo = TRUE)
+```{r setup, include=TRUE}
+knitr::opts_chunk$set(echo = TRUE, cache = TRUE)
 ```
 
 # Project Overview (from Project Guidelines PDF)
@@ -57,8 +57,8 @@ Rows/observations correspond to a test result and its inputs.
 
 ```{r, load_packages}
 library(tidyverse)
-library(splines)
 library(caret)
+library(splines)
 ```
 
 ## Read Data, Derive Features, and Transform the Response
@@ -90,60 +90,10 @@ lf <- df %>%
   pivot_longer(c(x1, x2, x3, x4, v1, v2, v3, v4, v5, x5, w, z, t))
 ```
 
+Define some functions I'll use later to evaluate models
 
-# Regression
 
-## Non-Bayesian Linear Models
-
-### Fitting Non-Bayesian Linear Models
-
-Start by fitting non-bayesian linear models 
-
-```{r, base_features_nb_linear_models}
-# all linear additive base features
-lm_1 <- lm(y ~ x1 + x2 + x3 + x4 + v1 + v2 + v3 + v4 + v5, data = df)
-summary(lm_1)
-# interaction of the categorical input with all continous inputs
-lm_2 <- lm(y ~ m*(x1 + x2 + x3 + x4 + v1 + v2 + v3 + v4 + v5), data = df)
-summary(lm_2)
-# all pair-wise interactions of the continuous inputs
-lm_3 <- lm(y ~ (x1 + x2 + x3 + x4 + v1 + v2 + v3 + v4 + v5)^2, data = df)
-```
-
-```{r, expanded_features_nb_linear_models}
-# all linear additive expanded feature set
-lm_4 <- lm(y ~ x1 + x3 + x4 + x5 + v1 + v2 + v3 + v4 + v5 + t + w + z, data = df)
-
-# interaction of the categorical input with all continuous features
-lm_5 <- lm(y ~ m*(x1 + x3 + x4 + x5 + v1 + v2 + v3 + v4 + v5 + t + w + z), data = df)
-
-# all pair-wise interactions of the continuous features
-lm_6 <- lm(y ~ (x1 + x3 + x4 + x5 + v1 + v2 + v3 + v4 + v5 + t + w + z)^2, data = df)
-```
-
-The following models try to fit more complex linear basis functions based on EDA with continuous outputs.
-
-The following inputs appeared to have somewhat quadratic relationships with the output: x1, z, and x5. Other inputs appear to have small relationships with the output that seem rather noisy and unspecific, geometrically speaking. Therefore, I will fit three spline models using all base and derived features using different degrees of freedom. This approach will create features derived from each of the base and derived features that do well at smaller intervals of the original inputs. Given these models are complex, I will rely on regularization performed later to simplify the models.
-
-```{r, linear_basis_models}
-ndf_7 <- 3
-
-lm_7 <- lm(y ~ ns(t, ndf_7) + ns(v1, ndf_7) + ns(v2, ndf_7) + ns(v3, ndf_7) + ns(v4, ndf_7) + ns(v5, ndf_7) + ns(w, ndf_7) + ns(x1, ndf_7) + ns(x2, ndf_7) + ns(x3, ndf_7) + ns(x4, ndf_7) + ns(z, ndf_7), data = df)
-
-ndf_8 <- 5
-
-lm_8 <- lm(y ~ ns(t, ndf_8) + ns(v1, ndf_8) + ns(v2, ndf_8) + ns(v3, ndf_8) + ns(v4, ndf_8) + ns(v5, ndf_8) + ns(w, ndf_8) + ns(x1, ndf_8) + ns(x2, ndf_8) + ns(x3, ndf_8) + ns(x4, ndf_8) + ns(z, ndf_8), data = df)
-
-ndf_9 <- 7
-
-lm_9 <- lm(y ~ ns(t, ndf_9) + ns(v1, ndf_9) + ns(v2, ndf_9) + ns(v3, ndf_9) + ns(v4, ndf_9) + ns(v5, ndf_9) + ns(w, ndf_9) + ns(x1, ndf_9) + ns(x2, ndf_9) + ns(x3, ndf_9) + ns(x4, ndf_9) + ns(z, ndf_9), data = df)
-```
-
-### Evaluating Performance of Non-Bayesian Linear Models
-
-I will use BIC and AIC to identify the top three non-bayesian linear models I fit.
-
-```{r, extract_metrics_func}
+```{r, define_functions}
 extract_metrics <- function(mod_object, mod_name)
 {
   broom::glance(mod_object) %>% 
@@ -164,6 +114,63 @@ extract_sig_coef <- function(mod_object)
 }
 ```
 
+# Regression
+
+## Non-Bayesian Linear Models
+
+### Fitting Non-Bayesian Linear Models
+
+Start by fitting non-bayesian linear models 
+
+```{r, base_features_nb_linear_models}
+# all linear additive base features
+lm_1 <- lm(y ~ m + x1 + x2 + x3 + x4 + v1 + v2 + v3 + v4 + v5, data = df)
+
+# interaction of the categorical input with all continous inputs
+lm_2 <- lm(y ~ m*(x1 + x2 + x3 + x4 + v1 + v2 + v3 + v4 + v5), data = df)
+
+# all pair-wise interactions of the continuous inputs
+lm_3 <- lm(y ~ (x1 + x2 + x3 + x4 + v1 + v2 + v3 + v4 + v5)^2, data = df)
+```
+
+```{r, expanded_features_nb_linear_models}
+# all linear additive expanded feature set
+lm_4 <- lm(y ~ m + x1 + x3 + x4 + x5 + v1 + v2 + v3 + v4 + v5 + t + w + z, data = df)
+
+# interaction of the categorical input with all continuous features
+lm_5 <- lm(y ~ m*(x1 + x3 + x4 + x5 + v1 + v2 + v3 + v4 + v5 + t + w + z), data = df)
+
+# all pair-wise interactions of the continuous features
+lm_6 <- lm(y ~ (x1 + x3 + x4 + x5 + v1 + v2 + v3 + v4 + v5 + t + w + z)^2, data = df)
+```
+
+Before defining other linear basis functions. I will check the significant features of the initial six models to see if there are any continuous input interactions that may be worth visualizing.
+
+```{r, check_sig_feats_lms_with_interactions}
+lm_2 %>% extract_sig_coef()
+lm_3 %>% extract_sig_coef()
+lm_5 %>% extract_sig_coef()
+lm_6 %>% extract_sig_coef()
+```
+
+It appears that there are some interactions between the categorical and continuous inputs, which are visualized in the "Visualize Conditional Distributions" section in the EDA document. A few interactions between continuous inputs seem significant, so I will visualize those that are present in both lm_3 and lm_6, which are x1:x3, x1:v4, and x3:v1
+
+The following models try to fit more complex linear basis functions using splines. lm_9 will use splines on the entire expanded feature set (excluding the machines as any interactions or additive effects with the machines seem very minor). lm_7 will use splines on the features with apparent non-linear relationships with the output (x1 and z (excluding x5 for the sake of avoiding singularities and features with high correlations we know of a priori)), while using the rest as additive effects. lm_8 will do the same, but will include the continuous interactions that were significant in the initial 6 models.
+
+```{r, linear_basis_models}
+ndf <- 7
+
+lm_7 <- lm(y ~ t + v1 + v2 + v3 + v4 + v5 + w + ns(x1, ndf) + x2 + x3 + x4 + ns(z, ndf), data = df)
+
+lm_8 <- lm(y ~ t + v1 + v2 + v3 + v4 + v5 + w + x2 + x3 + x4 + x1:x2 + x1:x3 + x1:v1 + x1:v4 + x1:v5 + x2:x3 + x2:v5 + x3:v1 + x3:v4 + x4:v2 + ns(x1, ndf) + ns(z, ndf), data = df)
+
+lm_9 <- lm(y ~ ns(t, ndf) + ns(v1, ndf) + ns(v2, ndf) + ns(v3, ndf) + ns(v4, ndf) + ns(v5, ndf) + ns(w, ndf) + ns(x1, ndf) + ns(x2, ndf) + ns(x3, ndf) + ns(x4, ndf) + ns(z, ndf), data = df)
+```
+
+### Evaluating Performance of Non-Bayesian Linear Models
+
+I will use BIC and AIC to identify the top three non-Bayesian linear models I fit.
+
 ```{r, evaluate_nblm}
 lm_mle_results <- purrr::map2_dfr(list(lm_1, lm_2, lm_3, lm_4,
                                         lm_5, lm_6, lm_7, lm_8,
@@ -180,11 +187,11 @@ lm_mle_results %>%
 
 ```
 
-The best three models appear to be the three splines models with 3, 5, and 7 degrees of freedom. Where more degrees of freedom improve performance according to the AIC and BIC.
+The best three models according to AIC/BIC appear to be the models that include splines (lm_7, lm_8, lm_9)
 
 ### Visualize Coefficient Summaries
 
-```{r, viz_coef_summaries}
+```{r, viz_coef_summaries_lm}
 coefplot::coefplot(lm_7) + theme_bw() +
   theme(legend.position = 'none')
 coefplot::coefplot(lm_8) + theme_bw() +
@@ -193,7 +200,7 @@ coefplot::coefplot(lm_9) + theme_bw() +
   theme(legend.position = 'none')
 ```
 
-These visualizations appear to demonstrate that the splines related to the manufacturing process variables rarely are statistically significant, while the w ratio, z ratio, and splines related to constituent inputs tend to be significant.
+The spline features in each of the models appear to be consistently significant across lm_7, lm_8, and lm_9. lm_8 stands out in that some of the interaction coefficients are large in magnitude and highly uncertain. Additionally, it seems that interactions terms or additive terms are more likely to be significant if they involve a constituent input compared to manufacturing process inputs. The inputs that seem important are x1, z, and perhaps other constituent inputs depending on the model formulation context.
 
 ### Identify Significant Features
 
@@ -205,7 +212,7 @@ lm_8 %>% extract_sig_coef()
 lm_9 %>% extract_sig_coef()
 ```
 
-Across the models. Splines from z, x3, x2. x1, w tend to be significant. Different manufacturing process splines are important for different models, though v3 is relevant to two of them.
+Across the models, spline-derived features appear important, otherwise it seems that interaction terms including constituent inputs are more likely to be significant than those including manufacturing process variables, while manufacturing process variables are only significant in their additive effects when the model doesn't account for interactions. It is difficult to determine the significance of these observations, since lm_8 and lm_7 seem to perform similarly.
 
 ## Bayesian Linear Models
 
@@ -213,43 +220,63 @@ Across the models. Splines from z, x3, x2. x1, w tend to be significant. Differe
 
 ```{r, load_rstanarm}
 library(rstanarm)
+library(rstan)
 ```
 
-This section fits the two best non-Bayesian linear models according to AIC/BIC from the previous section with Bayesian techniques.
+This section fits the two best non-Bayesian linear models according to AIC/BIC from the previous section with Bayesian techniques. lm_9 was clearly the best, but second best seemed to be a tie between lm_8 and lm_7. I will choose lm_7 as my second Bayesian linear model because it achieves virtually the same performance as lm_8 with less features, in addition to the fact that the interaction coefficients for lm_8 are very large and uncertain.
 
-```{r, fit_blm}
+```{r, mcmc_options}
 options(mc.cores = parallel::detectCores())
-blm_8 <- stan_lm(y ~ ns(t, ndf_8) + ns(v1, ndf_8) + ns(v2, ndf_8) + ns(v3, ndf_8) + ns(v4, ndf_8) + ns(v5, ndf_8) + ns(w, ndf_8) + ns(x1, ndf_8) + ns(x2, ndf_8) + ns(x3, ndf_8) + ns(x4, ndf_8) + ns(z, ndf_8), data = df,
+```
+
+
+```{r, fit_blm, cache = TRUE}
+blm_7 <- stan_lm(y ~ t + v1 + v2 + v3 + v4 + v5 + w + ns(x1, 7) + x2 + x3 + x4 + ns(z, 7), data = df,
                  prior = R2(location = 0.5),
                  seed = 123456) 
+
 ```
 
-```{r, fit_blm_9}
-blm_9 <- stan_lm(y ~ ns(t, ndf_9) + ns(v1, ndf_9) + ns(v2, ndf_9) + ns(v3, ndf_9) + ns(v4, ndf_9) + ns(v5, ndf_9) + ns(w, ndf_9) + ns(x1, ndf_9) + ns(x2, ndf_9) + ns(x3, ndf_9) + ns(x4, ndf_9) + ns(z, ndf_9), data = df,
+```{r, fit_blm_9, cache = TRUE}
+blm_9 <- stan_lm(y ~ ns(t, ndf) + ns(v1, ndf) + ns(v2, ndf) + ns(v3, ndf) + ns(v4, ndf) + ns(v5, ndf) + ns(w, ndf) + ns(x1, ndf) + ns(x2, ndf) + ns(x3, ndf) + ns(x4, ndf) + ns(z, ndf), data = df,
                  prior = R2(location = 0.5),
                  seed = 123456)
 ```
 
-
 ### Evaluating Performance of Bayesian Linear Models
 
-```{r, eval_blms}
-waic_blm_8 <- waic(blm_8)
+```{r, eval_blms, cache = TRUE}
+waic_blm_7 <- waic(blm_7)
 waic_blm_9 <- waic(blm_9)
-loo_blm_8 <- loo(blm_8)
+loo_blm_7 <- loo(blm_7)
 loo_blm_9 <- loo(blm_9)
-blm_comp <- loo_compare(loo_blm_8, loo_blm_9)
-waic_model_weights_results <- loo_model_weights(list(`8` = loo_blm_8, `9` = loo_blm_9))
+blm_comp <- loo_compare(loo_blm_7, loo_blm_9)
+waic_model_weights_results <- loo_model_weights(list(`7` = loo_blm_7, `9` = loo_blm_9))
 waic_model_weights_results
 ```
 
-According to model weighting derived from the LOOCV metric. blm_9 is a better Bayesian linear model than blm_8.
+According to model weighting derived from the LOOCV metric. blm_9 is a better Bayesian linear model than blm_7.
+
+Let's visualize the posterior summary statistics for blm_9
+
+```{r, viz_posterior_summary_statistics_blm_9}
+blm_9_summary <- blm_9$stan_summary
+blm_9_summary <- blm_9_summary %>% as_tibble() %>% mutate(name = rownames(blm_9_summary))
+blm_9_summary %>% filter(name != "log-posterior") %>%
+  ggplot(mapping = aes(x = mean, y = as.factor(name))) +
+  geom_point(color = 'blue') +
+  geom_errorbar(mapping = aes(xmin = `2.5%`, xmax = `97.5%`), color = 'blue') +
+  labs(title = "Coefficients from blm_9")
+coefplot::coefplot(lm_9, title = "Coefficients from lm_9")
+```
+
+The MLE estimates and posterior mean estimates from the Bayesian model appear the same.
 
 The noise, $\sigma$, is the residual error of the model's mean trend. 
 
 ```{r, viz_sigma_post}
-purrr::map2_dfr(list(blm_8, blm_9),
-                as.character(c(8, 9)),
+purrr::map2_dfr(list(blm_7, blm_9),
+                as.character(c(7, 9)),
                 function(mod, mod_name){as.data.frame(mod) %>% tibble::as_tibble() %>% 
                     select(sigma) %>% 
                     mutate(model_name = mod_name)}) %>% 
@@ -257,16 +284,17 @@ purrr::map2_dfr(list(blm_8, blm_9),
   geom_freqpoly(bins = 55,
                  mapping = aes(color = model_name),
                  size = 1.1) +
-  geom_vline(xintercept = summary(lm_9)$sigma) +
+  geom_vline(xintercept = summary(lm_9)$sigma, label = "MLE on sigma") +
+  annotate("text", x= summary(lm_9)$sigma -.01, y = 500, label="MLE on Sigma from lm_9", angle=90) +
   ggthemes::scale_color_colorblind("Model") +
   theme_bw() 
 ```
 
-The posterior uncertainty in the residual error is centered around 0.8. The MLE for lm_9 is close to the center of the posterior uncertainty for the Bayesian model formulation. The posterior seems quite certain about sigma. That is, the probable values for sigma are mostly contained within 0.5 units of the approximate center of 0.8.
+The posterior uncertainty in the residual error is centered around 0.8. The MLE on sigma from lm_9 is reasonably within the posterior uncertainty on sigma for the Bayesian model formulation. The posterior seems quite certain about sigma. That is, the probable values for sigma are mostly contained within 0.05 units of the approximate center of 0.8.
 
 
 ## Linear Model Predictions
-
+  
 This function organizes predictions from the non-Bayesian linear models to visualize trends in the logit-transformed response, y, with respect to the inputs.
 
 ```{r, tidy_predict_function}
@@ -283,7 +311,7 @@ tidy_predict <- function(mod, xnew)
 }
 ```
 
-This chunk defines a grid of inputs to make predictions on with models lm_8 and lm_9. Since each of these models makes splines based off of 12 base and derived features in total, the grid will only be defined on those base and derived features that had splines that were identified as significant across both models.  The most impactful splines seemed to come from z, w, and x2. Since both z and w contain x2, in some sense, this code chunk will define a grid of inputs over many values of z and w while holding all other inputs constant at their median value from the original data set. An important assumption here is that the trend visualized based on z and w when they are not derived from true values of x1, x2, x3, x4, and x5 is representative of the trend based on z and w when they are derived from true values.
+This chunk defines a grid of inputs to make predictions on with models lm_7 and lm_9. Since the spline features from x1 and z account for a large proportion of variance in the response, I will define the inputs to make predictions mostly along z and x1. An important assumption here is that the trends visualized based on z, when z is not derived from true values of x1, x2, x3, x4, and x5, are representative of the trend based on z when it is derived from true values.
 
 ```{r, make_viz_grid}
 viz_grid <- expand.grid(t = median(df$t),
@@ -292,8 +320,8 @@ viz_grid <- expand.grid(t = median(df$t),
                         v3 = median(df$v3),
                         v4 = median(df$v4),
                         v5 = median(df$v5),
-                        w = seq(min(df$w), max(df$w), length.out = 9),
-                        x1 = median(df$x1),
+                        w = median(df$w),
+                        x1 = seq(min(df$x1), max(df$x1), length.out = 9),
                         x2 = median(df$x2),
                         x3 = median(df$x3),
                         x4 = median(df$x4),
@@ -304,14 +332,16 @@ viz_grid <- expand.grid(t = median(df$t),
 
 ```
 
-```{r, lm_predictions}
-lm_pred_8 <- tidy_predict(lm_8, viz_grid)
+```{r, lm_predictions, cache = TRUE}
+
+lm_pred_7 <- tidy_predict(lm_7, viz_grid)
 
 lm_pred_9 <- tidy_predict(lm_9, viz_grid)
+
 ```
 
 ```{r, viz_lm_predictions}
-lm_pred_8 %>% 
+lm_pred_7 %>% 
   ggplot(mapping = aes(x = z)) +
   geom_ribbon(mapping = aes(ymin = pred_lwr, ymax = pred_upr),
               fill = 'orange') +
@@ -319,7 +349,7 @@ lm_pred_8 %>%
               fill = 'grey') +
   geom_line(mapping = aes(y = pred),
             color = 'black')  +
-  facet_wrap(~w, labeller = "label_both") +
+  facet_wrap(~x1, labeller = "label_both") +
   theme_bw()
 
 lm_pred_9 %>% 
@@ -330,15 +360,15 @@ lm_pred_9 %>%
               fill = 'grey') +
   geom_line(mapping = aes(y = pred),
             color = 'black')  +
-  facet_wrap(~w, labeller = "label_both") +
+  facet_wrap(~x1, labeller = "label_both") +
   theme_bw()
 ```
 
-The predictive trends are consistent bewteen the two non-Bayesian linear models, lm_8 and lm_9. 
+The predictive trends are consistent between the two non-Bayesian linear models, lm_7 and lm_9, though the prediction intervals seem wider for lm_7 than  lm_9, while the confidence intervals for lm_9 is wider than that for lm_7.
 
-## Training Linear Models with Cross-Validation and Resampling
+## Training Linear Models with Cross-Validation, Resampling, and Regularization
 
-The following code sets the number of folds and samples.
+The following code sets the number of folds and samples for training models with cross-validation and resampling
 
 ```{r, set_lm_ctrl_metric}
 set.seed(123456)
@@ -346,9 +376,9 @@ my_ctrl_lm <- trainControl(method = "repeatedcv", number = 10, repeats = 3)
 my_metric_lm <- 'RMSE'
 ```
 
-The following code trains models of the additive effects of the base features (lm_1), the additive effects of the expanded feature set (lm_4), and the two spline models (lm_8 and lm_9)
+The following code trains models of the additive effects of the base features (lm_1), the additive effects of the expanded feature set (lm_4), and the two of the models including splines (lm_7 and lm_9)
 
-```{r, caret_lm_train}
+```{r, caret_lm_train, cache = TRUE}
 lm_1_caret <- train(as.formula(lm_1$model), 
                     data = df,
                     method = "lm",
@@ -360,11 +390,10 @@ lm_4_caret <- train(as.formula(lm_4$model),
                     data = df,
                     method = "lm",
                     metric = my_metric_lm,
+                    preProcess = c("center", "scale"),
                     trControl = my_ctrl_lm)
 
-lm_8_caret <- train(y ~ ns(t, 5) + ns(v1, 5) + ns(v2, 5) + ns(v3, 5) + 
-    ns(v4, 5) + ns(v5, 5) + ns(w, 5) + ns(x1, 5) + 
-    ns(x2, 5) + ns(x3, 5) + ns(x4, 5) + ns(z, 5),
+lm_7_caret <- train(y ~ t + v1 + v2 + v3 + v4 + v5 + w + ns(x1, 7) + x2 + x3 + x4 + ns(z, 7),
                     data = df,
                     method = "lm",
                     metric = my_metric_lm,
@@ -381,10 +410,11 @@ lm_9_caret <- train(y ~ ns(t, 7) + ns(v1, 7) + ns(v2, 7) + ns(v3, 7) +
                     trControl = my_ctrl_lm)
 ```
 
+
 The below code trains regularized regression models with the elastic net penalty.
 
-```{r, regression_enet}
-lm_int_enet <- train(y ~ m*(x1 + x3 + x4 + x5 + v1 + v2 + v3 + v4 + v5 + t + w + z)^2,
+```{r, regression_enet, cache = TRUE}
+lm_int_enet <- train(y ~ m*((x1 + x3 + x4 + x5 + v1 + v2 + v3 + v4 + v5 + t + w + z)^2),
                     data = df,
                     method = "glmnet",
                     metric = my_metric_lm,
@@ -399,78 +429,132 @@ lm_9_enet <- train(y ~ ns(t, 7) + ns(v1, 7) + ns(v2, 7) + ns(v3, 7) +
                     metric = my_metric_lm,
     preProcess = c("center", "scale"),
                     trControl = my_ctrl_lm)
+
+lm_int_enet
+lm_9_enet
 ```
+
+Tuning with the default grid, lm_int_enet appears to use the Lasso penalty, while lm_9_enet appears to a use a mix of the Lasso and Ridge penalty with a lower penalty factor than lm_int_enet. This may be due to high correlations in the spline features and the large number of features derived.
 
 ## Training Models with Non-Linear Methods
 
 The below code trains a neural net on a custom tuning grid.
 
-```{r, regression_nnet}
+```{r, regression_nnet, cache = TRUE}
 nnet_grid <- expand.grid(size = c(5,9,13,17),
                          decay = exp(seq(-6, 0, length.out = 11)))
 
-nnet_base_reg <- caret::train(y ~ x1 + x2 + x3 + x4 + v1 + v2 + v3 + v4 + v5,
+nnet_base_reg <- caret::train(y ~ m + x1 + x2 + x3 + x4 + v1 + v2 + v3 + v4 + v5,
                           data = df,
                           method = 'nnet',
                           metric = my_metric_lm,
                           trControl = my_ctrl_lm,
                           preProcess = c('center', 'scale'),
+                          linout = TRUE,
                           trace = FALSE,
                           tuneGrid = nnet_grid)
 
-nnet_exp_reg <- caret::train(y ~ x1 + x3 + x4 + x5 + v1 + v2 + v3 + v4 + v5 + t + w + z,
+nnet_exp_reg <- caret::train(y ~ m + x1 + x3 + x4 + x5 + v1 + v2 + v3 + v4 + v5 + t + w + z,
                           data = df,
                           method = 'nnet',
                           metric = my_metric_lm,
                           trControl = my_ctrl_lm,
                           preProcess = c('center', 'scale'),
+                          linout = TRUE,
                           trace = FALSE,
                           tuneGrid = nnet_grid)
+
+plot(nnet_base_reg)
+nnet_base_reg$bestTune
+plot(nnet_exp_reg)
+nnet_exp_reg$bestTune
 ```
+
+Given the custom tuning grid, for the base features, the optimal tuning parameters were size = 13 and decay = 0.02732372, while for the expanded feature set the optimal tuning parameters were size = 13 and decay = 0.002478752
 
 The below code trains a random forest model
 
-```{r, regression_rf}
-rf_base_reg <- train(y ~ x1 + x2 + x3 + x4 + v1 + v2 + v3 + v4 + v5,
+```{r, regression_rf, cache = TRUE}
+rf_base_reg <- train(y ~ m + x1 + x2 + x3 + x4 + v1 + v2 + v3 + v4 + v5,
                      data = df,
                      method = 'rf',
                      metric = my_metric_lm,
                      trControl = my_ctrl_lm,
                      importance = TRUE)
 
-rf_exp_reg <- train(y ~ x1 + x3 + x4 + x5 + v1 + v2 + v3 + v4 + v5 + t + w + z,
+rf_exp_reg <- train(y ~ m + x1 + x3 + x4 + x5 + v1 + v2 + v3 + v4 + v5 + t + w + z,
                     data = df,
                     method = 'rf',
                     metric = my_metric_lm,
                     trControl = my_ctrl_lm,
                     importance = TRUE)
+
+rf_base_reg
+rf_exp_reg
 ```
+
+Using the default tuning grid, the optimal number of variables selected per split for the two random forest models was the number of inputs to the model. That is, 13 for the RF of base features and 16 for the expanded set when assessing model performance by RMSE
 
 The below code trains a gradient-boosted tree via XGBoost.
 
-```{r, regression_xgb}
-xgb_base_reg <- train(y ~ x1 + x2 + x3 + x4 + v1 + v2 + v3 + v4 + v5,
+```{r, regression_xgb, cache = TRUE}
+xgb_base_reg <- train(y ~ m + x1 + x2 + x3 + x4 + v1 + v2 + v3 + v4 + v5,
                       data = df,
                       method = 'xgbTree',
                       trControl = my_ctrl_lm,
                       metric = my_metric_lm,
                       verbosity = 0)
 
-xgb_exp_reg <- train(y ~ x1 + x3 + x4 + x5 + v1 + v2 + v3 + v4 + v5 + t + w + z,
+xgb_exp_reg <- train(y ~ m + x1 + x3 + x4 + x5 + v1 + v2 + v3 + v4 + v5 + t + w + z,
                      data = df,
                      method = 'xgbTree',
                      trControl = my_ctrl_lm,
                      metric = my_metric_lm,
                      verbosity = 0)
+
+plot(xgb_base_reg)
+xgb_base_reg$bestTune
+plot(xgb_exp_reg)
+xgb_exp_reg$bestTune
 ```
 
+## Training Partial Least Squares Models and Multivariate Adaptive Regression Spline Models
+
+```{r, regression_pls, cache = TRUE}
+pls_exp_reg <- train(y ~ m + x1 + x3 + x4 + x5 + v1 + v2 + v3 + v4 + v5 + t + w + z,
+                     data = df,
+                     method = 'pls',
+                     trControl = my_ctrl_lm,
+                     metric = my_metric_lm,
+                     preProcess = c('center', 'scale'),
+                     tuneLength = 20)
+pls_exp_reg
+```
+
+The optimal number of components for the PLS model is 14.
+
+```{r, regression_mars, cache = TRUE}
+mars_exp_reg <- train(y ~ m + x1 + x3 + x4 + x5 + v1 + v2 + v3 + v4 + v5 + t + w + z,
+                     data = df,
+                     method = 'earth',
+                     trControl = my_ctrl_lm,
+                     metric = my_metric_lm,
+                     preProcess = c('center', 'scale'),
+                     tuneGrid = expand.grid(nprune = seq(2, 50, by = 4),
+                         degree = seq(1, 3, by = 1)))
+mars_exp_reg
+```
+
+The degree of interaction for the final MARS model is 3, with 50 terms, though the MARS models with 22 terms and 2 degrees of interaction are comparable.
+
+## Regression Model Comparison
 
 The below code compares the linear models trained through cross-validation, resampling, and the elastic net penalty, as well as the neural networks and tree-based models.
 
 ```{r, caret_comparisons}
 caret_rmse_compare <- resamples(list(base_add = lm_1_caret,
                                     expanded_add = lm_4_caret,
-                                    splines_5_df = lm_8_caret,
+                                    expanded_add_splines_7_df = lm_7_caret,
                                     splines_7_df = lm_9_caret,
                                     expanded_int_enet = lm_int_enet,
                                     splines_7_df_enet = lm_9_enet,
@@ -479,11 +563,17 @@ caret_rmse_compare <- resamples(list(base_add = lm_1_caret,
                                     rf_base = rf_base_reg,
                                     rf_expanded = rf_exp_reg,
                                     xgb_base = xgb_base_reg,
-                                    xgb_expanded = xgb_exp_reg))
+                                    xgb_expanded = xgb_exp_reg,
+                                    pls_expanded = pls_exp_reg,
+                                    mars_expanded = mars_exp_reg))
 
 dotplot(caret_rmse_compare)
-
 ```
 
 The best model, by MAE, RMSE, and Rsquared metrics, is the gradient-boosted tree trained on the expanded feature set.
+
+```{r, save_xgb_regression_models}
+xgb_base_reg %>% readr::write_rds("xgb_base_reg.rds")
+xgb_exp_reg %>% readr::write_rds("xgb_exp_reg.rds")
+```
 

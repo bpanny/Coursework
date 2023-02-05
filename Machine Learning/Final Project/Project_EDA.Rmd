@@ -101,7 +101,6 @@ lf %>% glimpse()
 
 There are 1,252 observations and 14 features
 
-
 ## Visualize the Distribution of the Variables in the Dataset.
 
 Visualize the base and derived features.
@@ -116,6 +115,8 @@ df %>%
   ggplot(mapping = aes(x = m)) +
   geom_bar()
 ```
+
+Visualize the response variable
 
 ```{r, viz_distributions_response}
 df %>%
@@ -181,7 +182,7 @@ df %>%
 
 ```
 
-The distributions of the base and derived features and the response variables appear largely consistent across the different machines used in the manufacturing processes.
+The distributions of the base and derived features and the response variables appear largely consistent across the different machines used in the manufacturing processes, though some variations do appear to be significant in linear regression models that include the machine in interactions, while not improving performance too much.
 
 ## Visualize Relationships between Base and Derived Features
 
@@ -199,14 +200,46 @@ model.matrix( ~ .*. - 1, data = df_cont_feat)  %>%
   cor() %>%
   corrplot::corrplot(type = 'upper', method = 'square',
                      order = 'hclust', hclust.method = 'ward.D2')
-
-# correlation plot, with some quadratic features
-df_quad_feat <- model.matrix(~ . + I(x1^2) + I(x5^2) + I(z^2) - 1, data = df_cont_feat)
-df_quad_feat %>%
-  cor() %>%
-  corrplot::corrplot(type = 'upper', method = 'square',
-                     order = 'hclust', hclust.method = 'ward.D2')
 ```
+
+x5 and z appear highly anti-correlated.
+
+```{r, viz_relationships_base_derived_features_scatter}
+library(GGally)
+df %>% select(-m, -output, -y, -outcome, -outcome_y) %>%
+  ggpairs(progress = FALSE)
+```
+
+As can be seen in the pairs plot, several input and derived features are significantly correlated. 
+
+x5 and z have a correlation coefficient (r) equal to -.832, which will very likely impact model behavior. Other variables have very high correlations as well (around .5 or .6), which may also affect model behavior.
+
+```{r, visualize_significant_interactions_x1x3}
+df %>%
+  ggplot(mapping = aes(x = x1, y = y, color = cut(x3, breaks = 5))) +
+  geom_point() +
+  geom_smooth(method = 'lm')
+```
+
+As identified by the linear regression models lm_3 and lm_6, x3 appears to affect the relationship between x1 and y. Though the interaction may be better captured by an interaction between a quadratic term for x1 with x3.
+
+```{r, visualize_significant_interactions_x1v4}
+df %>%
+  ggplot(mapping = aes(x = x1, y = y, color = cut(v4, breaks = 5))) +
+  geom_point() +
+  geom_smooth(method = 'lm')
+```
+
+The interaction between v4 and x1 seems rather small.
+
+```{r, visualize_significant_interactions_x3v1}
+df %>%
+  ggplot(mapping = aes(x = x3, y = y, color = cut(v1, breaks = 5))) +
+  geom_point() +
+  geom_smooth(method = 'lm')
+```
+
+The interaction between x3 and v1 appears quite small.
 
 ## Visualize Relationships between Features and Response Variable
 
@@ -224,6 +257,7 @@ df %>%
 
 The relationship between the following features and the response variable, y, appear to be noise: t, v1, v2, v3, v4, v5, x2, and x4
 The following variables appear to have potentially interesting, non-linear (mostly quadratic) relationships with the response variable, y: w, x1, x2, x5, and z
+
 These observations appear to be independent of the machine used. The machine used also does not appear to affect the output y much.
 
 ```{r, viz_inputs_event_relationship}

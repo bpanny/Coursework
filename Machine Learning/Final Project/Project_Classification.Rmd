@@ -5,8 +5,8 @@ date: "Submission time: December 13, 2022 at 11:00PM EST"
 output: html_document
 ---
 
-```{r setup, include=FALSE}
-knitr::opts_chunk$set(echo = TRUE)
+```{r setup, include = TRUE}
+knitr::opts_chunk$set(echo = TRUE, cache = TRUE)
 ```
 
 # Project Overview (from Project Guidelines PDF)
@@ -57,8 +57,8 @@ Rows/observations correspond to a test result and its inputs.
 
 ```{r, load_packages}
 library(tidyverse)
-library(splines)
 library(caret)
+library(splines)
 ```
 
 ## Read Data, Derive Features, and Transform the Response
@@ -90,6 +90,29 @@ lf <- df %>%
   pivot_longer(c(x1, x2, x3, x4, v1, v2, v3, v4, v5, x5, w, z, t))
 ```
 
+Define some functions I'll use later to evaluate models
+
+
+```{r, define_functions}
+extract_metrics <- function(mod_object, mod_name)
+{
+  broom::glance(mod_object) %>% 
+    mutate(model_name = mod_name)
+}
+
+extract_sig_coef <- function(mod_object)
+{
+  # Extract the p-values
+  p_values <- summary(mod_object)$coefficients[, 4]
+  
+  # Find the indices of the coefficients that have p-values less than .05
+  significant_indices <- which(p_values < 0.05)
+  
+  # Extract significant coefficients
+  significant_coefs <- summary(mod_object)$coefficients[c(significant_indices),]
+  significant_coefs
+}
+```
 
 # Classification
 
@@ -97,11 +120,11 @@ lf <- df %>%
 
 ### Fitting Non-Bayesian GLMs
 
-This code fits non-Bayesian Generalized Linear Models. Which are linear models that generalize the linear predictor to a target variable through a link function. In this case, the logistic function. All models fit in this section follow the same model formulas specified in the Regression section, except for the fact that the likelihood function is a binomial distribution instead of a Gaussian distribution. Similarly, the models do not predict the logit-transformed output, y, nor do they predict the raw output (the corrosion fraction), but instead the models predict the probability of the corrosion fraction being less than .33.
+This code fits non-Bayesian Generalized Linear Models. Which are linear models that generalize the linear predictor to a target variable through a link function. In this case, the link function is the logistic function. All models fit in this section follow the same model formulas specified in the Regression section, except for the fact that the likelihood function is a binomial distribution instead of a Gaussian distribution. Similarly, the models do not predict the logit-transformed output, y, nor do they predict the raw output (the corrosion fraction), but instead the models predict the probability the corrosion fraction is less than .33.
 
 ```{r, base_features_nb_glm}
 # all linear additive base features
-glm_1 <- glm(outcome_y ~ x1 + x2 + x3 + x4 + v1 + v2 + v3 + v4 + v5, data = df, family = "binomial")
+glm_1 <- glm(outcome_y ~ m + x1 + x2 + x3 + x4 + v1 + v2 + v3 + v4 + v5, data = df, family = "binomial")
 
 # interaction of the categorical input with all continuous inputs
 glm_2 <- glm(outcome_y ~ m*(x1 + x2 + x3 + x4 + v1 + v2 + v3 + v4 + v5), data = df, family = "binomial")
@@ -112,7 +135,7 @@ glm_3 <- glm(outcome_y ~ (x1 + x2 + x3 + x4 + v1 + v2 + v3 + v4 + v5)^2, data = 
 
 ```{r, expanded_features_nb_glm}
 # all linear additive expanded feature set
-glm_4 <- glm(outcome_y ~ x1 + x3 + x4 + x5 + v1 + v2 + v3 + v4 + v5 + t + w + z, data = df, family = "binomial")
+glm_4 <- glm(outcome_y ~ m + x1 + x3 + x4 + x5 + v1 + v2 + v3 + v4 + v5 + t + w + z, data = df, family = "binomial")
 
 # interaction of the categorical input with all continuous features
 glm_5 <- glm(outcome_y ~ m*(x1 + x3 + x4 + x5 + v1 + v2 + v3 + v4 + v5 + t + w + z), data = df, family = "binomial")
@@ -121,18 +144,16 @@ glm_5 <- glm(outcome_y ~ m*(x1 + x3 + x4 + x5 + v1 + v2 + v3 + v4 + v5 + t + w +
 glm_6 <- glm(outcome_y ~ (x1 + x3 + x4 + x5 + v1 + v2 + v3 + v4 + v5 + t + w + z)^2, data = df, family = "binomial")
 ```
 
+The following models try to fit more complex linear basis functions using splines. lm_9 will use splines on the entire expanded feature set (excluding the machines as any interactions or additive effects with the machines seem very minor). lm_7 will use splines on the features with apparent non-linear relationships with the output (x1 and z (excluding x5 for the sake of avoiding singularities and features with high correlations we know of a priori)), while using the rest as additive effects. lm_8 will do the same, but will include the continuous interactions that were significant in the initial 6 models.
+
 ```{r, glm_basis_models}
-ndf_7 <- 3
+ndf <- 7
 
-glm_7 <- glm(outcome_y ~ ns(t, ndf_7) + ns(v1, ndf_7) + ns(v2, ndf_7) + ns(v3, ndf_7) + ns(v4, ndf_7) + ns(v5, ndf_7) + ns(w, ndf_7) + ns(x1, ndf_7) + ns(x2, ndf_7) + ns(x3, ndf_7) + ns(x4, ndf_7) + ns(z, ndf_7), data = df, family = "binomial")
+glm_7 <- glm(outcome_y ~ t + v1 + v2 + v3 + v4 + v5 + w + ns(x1, ndf) + x2 + x3 + x4 + ns(z, ndf), data = df, family = "binomial")
 
-ndf_8 <- 5
+glm_8 <- glm(outcome_y ~ t + v1 + v2 + v3 + v4 + v5 + w + x2 + x3 + x4 + x1:x2 + x1:x3 + x1:v1 + x1:v4 + x1:v5 + x2:x3 + x2:v5 + x3:v1 + x3:v4 + x4:v2 + ns(x1, ndf) + ns(z, ndf), data = df, family = "binomial")
 
-glm_8 <- glm(outcome_y ~ ns(t, ndf_8) + ns(v1, ndf_8) + ns(v2, ndf_8) + ns(v3, ndf_8) + ns(v4, ndf_8) + ns(v5, ndf_8) + ns(w, ndf_8) + ns(x1, ndf_8) + ns(x2, ndf_8) + ns(x3, ndf_8) + ns(x4, ndf_8) + ns(z, ndf_8), data = df, family = "binomial")
-
-ndf_9 <- 7
-
-glm_9 <- glm(outcome_y ~ ns(t, ndf_9) + ns(v1, ndf_9) + ns(v2, ndf_9) + ns(v3, ndf_9) + ns(v4, ndf_9) + ns(v5, ndf_9) + ns(w, ndf_9) + ns(x1, ndf_9) + ns(x2, ndf_9) + ns(x3, ndf_9) + ns(x4, ndf_9) + ns(z, ndf_9), data = df, family = "binomial")
+glm_9 <- glm(outcome_y ~ ns(t, ndf) + ns(v1, ndf) + ns(v2, ndf) + ns(v3, ndf) + ns(v4, ndf) + ns(v5, ndf) + ns(w, ndf) + ns(x1, ndf) + ns(x2, ndf) + ns(x3, ndf) + ns(x4, ndf) + ns(z, ndf), data = df, family = "binomial")
 ```
 
 ### Evaluating Performance of Non-Bayesian GLMs
@@ -153,11 +174,11 @@ glm_mle_results %>%
 
 ```
 
-The AIC/BIC metrics are consistent in terms of the top three models, but have the top two models switched. Since I am concerned with complexity and overfitting and the BIC metric penalizes complexity more than the AIC metric. I will choose the best model according to BIC, which is glm_8 (spline df = 5).
+The AIC/BIC metrics are consistent in terms of the top three models, but AIC selects glm_9 as the best model while BIC selects glm_7 as the best model (due to greater complexity cost outweighing the error reduction of glm_9 under the BIC). Since BIC penalizes complexity more and I am mindful of overfitting, I will choose glm_7 as the best performing model on the training dataset, though an evaluation of their true performance depends on test data and approximating performance on test data with cross-validation and resampling.
 
 ### Visualizing Coefficient Summaries
 
-```{r, viz_coef_summaries}
+```{r, viz_coef_summaries_glm}
 coefplot::coefplot(glm_7) + theme_bw() +
   theme(legend.position = 'none')
 coefplot::coefplot(glm_8) + theme_bw() +
@@ -166,19 +187,19 @@ coefplot::coefplot(glm_9) + theme_bw() +
   theme(legend.position = 'none')
 ```
 
-The coefficients appear different between the three spline models. From df = 3, to df = 5, to df = 7, some coefficients appear to get increasingly large in magnitude, with corresponding increases in magnitude, which is somewhat disconcerting. glm_9 (df = 7) seems to primarily rely on z, x3, w, and the intercept. glm_8 (df = 5) similarly seems to value z, w, and the intecept but x1 instead of x3. glm_7 (df = 3) seems to rely minorly on manufacturing process features,as well as w, z, x2, and x3.
+The coefficients for splines of the z ratio are consistently significant across glm_7, glm_8, and glm_9. The splines for x1 are significant in glm_7 and glm_9, but not as much in glm_8. glm_8 has massive magnitude and uncertainty regarding the x2:x3 interaction coefficient. glm_9 also has large magnitude and uncertainty in several of its coefficients. glm_7 has the smallest coefficient magnitudes and uncertainties, though they are still quite large.
 
 ### Identifying Significant Features
 
 The below code prints the significant features for the top three GLMs.
 
-```{r, nblm_coef_summaries}
+```{r, nbglm_coef_summaries}
 glm_7 %>% extract_sig_coef()
 glm_8 %>% extract_sig_coef()
 glm_9 %>% extract_sig_coef()
 ```
 
-z is significant in all three models, but especially to glm_9. x1 and w are also significant in all three models. As seen in the visualization, manufacturing process variables are mostly significant in glm_7.
+The splines for x1 and z are significant and important in the top three models. Similarly, the "w" ratio seems important to these classification models as well, since it was significant as a main additive effect and as a feature to derive splines from.
 
 ## Bayesian Generalized Linear Models
 
@@ -186,21 +207,26 @@ z is significant in all three models, but especially to glm_9. x1 and w are also
 
 ```{r, load_rstanarm_glm}
 library(rstanarm)
+library(rstan)
 ```
 
 This section fits the two best non-Bayesian generalized linear models according to AIC/BIC from the previous section with Bayesian techniques. A Student t prior with 7 degrees of freedom and a scale of 2.5 will be used, which is "a reasonable default prior when coefficients should be close to zero but have some chance of being large" according to [this Stan vignette](https://mc-stan.org/rstanarm/articles/binomial.html)
 
-```{r, fit_bglm_8}
+```{r, mc_options}
 options(mc.cores = parallel::detectCores())
+```
+
+
+```{r, fit_bglm_7, cache = TRUE}
 t_prior <- student_t(df = 7, location = 0, scale = 2.5) #
-bglm_8 <- stan_glm(outcome_y ~ ns(t, ndf_8) + ns(v1, ndf_8) + ns(v2, ndf_8) + ns(v3, ndf_8) + ns(v4, ndf_8) + ns(v5, ndf_8) + ns(w, ndf_8) + ns(x1, ndf_8) + ns(x2, ndf_8) + ns(x3, ndf_8) + ns(x4, ndf_8) + ns(z, ndf_8), data = df,
+bglm_7 <- stan_glm(outcome_y ~ t + v1 + v2 + v3 + v4 + v5 + w + x2 + x3 + x4 + x1:x2 + x1:x3 + x1:v1 + x1:v4 + x1:v5 + x2:x3 + x2:v5 + x3:v1 + x3:v4 + x4:v2 + ns(x1, ndf) + ns(z, ndf), data = df,
                    family = binomial(link = "logit"),
                    prior = t_prior, prior_intercept = t_prior,
                    seed = 123456)
 ```
 
-```{r, fit_bglm_9}
-bglm_9 <- stan_glm(outcome_y ~ ns(t, ndf_9) + ns(v1, ndf_9) + ns(v2, ndf_9) + ns(v3, ndf_9) + ns(v4, ndf_9) + ns(v5, ndf_9) + ns(w, ndf_9) + ns(x1, ndf_9) + ns(x2, ndf_9) + ns(x3, ndf_9) + ns(x4, ndf_9) + ns(z, ndf_9), data = df,
+```{r, fit_bglm_9, cache = TRUE}
+bglm_9 <- stan_glm(outcome_y ~ ns(t, ndf) + ns(v1, ndf) + ns(v2, ndf) + ns(v3, ndf) + ns(v4, ndf) + ns(v5, ndf) + ns(w, ndf) + ns(x1, ndf) + ns(x2, ndf) + ns(x3, ndf) + ns(x4, ndf) + ns(z, ndf), data = df,
                   family = binomial(link = "logit"),
                   prior = t_prior, prior_intercept = t_prior,
                   seed = 123456)
@@ -209,17 +235,469 @@ bglm_9 <- stan_glm(outcome_y ~ ns(t, ndf_9) + ns(v1, ndf_9) + ns(v2, ndf_9) + ns
 
 ### Evaluating Performance of Bayesian Linear Models
 
-```{r, eval_bglms}
-waic_bglm_8 <- waic(bglm_8)
+```{r, eval_bglms, cache = TRUE}
+waic_bglm_7 <- waic(bglm_7)
 waic_bglm_9 <- waic(bglm_9)
-loo_bglm_8 <- loo(bglm_8)
+loo_bglm_7 <- loo(bglm_7)
 loo_bglm_9 <- loo(bglm_9)
-bglm_comp <- loo_compare(loo_bglm_8, loo_bglm_9)
-waic_bglm_weights_results <- loo_model_weights(list(`8` = loo_bglm_8, `9` = loo_bglm_9))
+bglm_comp <- loo_compare(loo_bglm_7, loo_bglm_9)
+waic_bglm_weights_results <- loo_model_weights(list(`7` = loo_bglm_7, `9` = loo_bglm_9))
 waic_bglm_weights_results
 ```
 
-According to model weighting derived from the LOOCV metric. bglm is a better Bayesian generalized linear model than bglm_8.
+According to model weighting derived from the LOOCV metric, bglm_9 is a better Bayesian generalized linear model than bglm_7.
+
+```{r, viz_posterior_summary_statistics_bglm_9}
+bglm_9_summary <- bglm_9$stan_summary
+bglm_9_summary <- bglm_9_summary %>% as_tibble() %>% mutate(name = rownames(bglm_9_summary))
+bglm_9_summary %>% filter(name != "log-posterior") %>%
+  ggplot(mapping = aes(x = mean, y = as.factor(name))) +
+  geom_point(color = 'blue') +
+  geom_errorbar(mapping = aes(xmin = `2.5%`, xmax = `97.5%`), color = 'blue')
+coefplot::coefplot(glm_9)
+```
+
+In comparison to the non-bayesian glm_9, bglm_9 has largely the same splines that are statistically significant. However, the prior seems to be limiting the magnitude of the coefficients and keeping them closer to zero, while still allowing them some breadth.
 
 ## Generalized Linear Model Predictions
 
+```{r, extract_sig_coef_glm}
+glm_7 %>% extract_sig_coef()
+glm_9 %>% extract_sig_coef()
+```
+
+The splines of z and x1 are significant in both models. The "w" ratio also seems to be an important input for both models, therefore I will predict the mean event probability trends along values of z and w, while keeping the other inputs constant at their observed medians. An important assumption here is that the trends visualized based on z and w, when they are not derived from true values of x1, x2, x3, x4, and x5, are representative of the trend based on z and w when they are derived from true values.
+
+```{r, tidy_predict_glm_function_link}
+tidy_predict_glm_link <- function(mod, xnew)
+{
+  pred_df <- predict(mod, xnew, type = "link", se.fit = TRUE) %>% 
+    as.data.frame() %>% tibble::as_tibble() %>% 
+    mutate(ci_lwr = mod$family$linkinv(fit + qt(0.025, df = mod$df.residual) * se.fit),
+           event_prob = mod$family$linkinv(fit),
+           ci_upr = mod$family$linkinv(fit + qt(0.975, df = mod$df.residual) * se.fit))
+  
+  xnew %>% bind_cols(pred_df)
+}
+```
+
+```{r, make_viz_grid_class}
+viz_grid_class <- expand.grid(t = median(df$t),
+                        v1 = median(df$v1),
+                        v2 = median(df$v2),
+                        v3 = median(df$v3),
+                        v4 = median(df$v4),
+                        v5 = median(df$v5),
+                        w = seq(min(df$w), max(df$w), length.out = 9),
+                        x1 = median(df$x1),
+                        x2 = median(df$x2),
+                        x3 = median(df$x3),
+                        x4 = median(df$x4),
+                        z = seq(min(df$z), max(df$z), length.out = 101),
+                        KEEP.OUT.ATTRS = FALSE,
+                        stringsAsFactors = FALSE) %>% 
+  as.data.frame() %>% tibble::as_tibble()
+
+```
+
+```{r, glm_predictions, cache = TRUE}
+pred_glm_7 <- tidy_predict_glm_link(glm_7, viz_grid_class)
+pred_glm_9 <- tidy_predict_glm_link(glm_9, viz_grid_class)
+```
+
+
+```{r, plot_glm_predictive_mean_trends}
+pred_glm_7 %>% 
+  ggplot(mapping = aes(x = z)) +
+  geom_ribbon(mapping = aes(ymin = ci_lwr, ymax = ci_upr),
+              fill = 'grey') +
+  geom_line(mapping = aes(y = event_prob),
+            color = 'black')  +
+  facet_wrap(~w, labeller = "label_both") +
+  theme_bw()
+
+pred_glm_9 %>% 
+  ggplot(mapping = aes(x = z)) +
+  geom_ribbon(mapping = aes(ymin = ci_lwr, ymax = ci_upr),
+              fill = 'grey') +
+  geom_line(mapping = aes(y = event_prob),
+            color = 'black')  +
+  facet_wrap(~w, labeller = "label_both") +
+  theme_bw()
+
+```
+
+The predictive trends between the glm_7 and glm_9 appear largely consistent with some subtle differences. Overall, the "z" ratio in each shows an inverted U pattern for the mean event probability as the "z" ratio value increases. The main differences appear to be that bglm_9, for several values of w, has an almost box-like shape when predicting the event, whereas glm_7 often has less sharp curvature. Additionally, sometimes glm_9 seems to have larger uncertainty around its trend curves than glm_7 and other times glm_7 seems to have larger uncertainty than glm_9. This is subtle, however, in that the uncertainty in the predictive trend of glm_7 tends to be more consistent across values of z and w, whereas uncertainty appears to sharply increase and decrease across different values of z in glm_9's predictive trend.
+
+## Training GLMs with Cross-validation, Resampling, and Regularization
+
+The following code sets the number of folds and samples for training models with cross-validation and resampling as well as performance metrics
+
+```{r, set_glm_ctrl_metric}
+set.seed(123456)
+ctrl_acc <- trainControl(method = "repeatedcv", number = 10, repeats = 3)
+ctrl_roc <- trainControl(method = 'repeatedcv', number = 10, repeats = 3,
+                         summaryFunction = twoClassSummary,
+                         classProbs = TRUE,
+                         savePredictions = TRUE)
+metric_acc <- 'Accuracy'
+metric_roc <- 'ROC'
+```
+
+The following code trains models of the additive effects of the base features (glm_1), the additive effects of the expanded feature set (glm_4), and the two spline models (glm_7 and glm_9). Each model formulation will be trained on accuracy and ROC metrics separately.
+
+```{r, caret_glm_train_acc, cache = TRUE}
+glm_1_acc <- train(outcome ~ m + x1 + x2 + x3 + x4 + v1 + v2 + v3 + v4 + v5, 
+                    data = df,
+                    method = "glm",
+                    preProcess = c("center", "scale"),
+                    metric = metric_acc,
+                    trControl = ctrl_acc)
+
+glm_4_acc <- train(outcome ~ m + x1 + x3 + x4 + x5 + v1 + v2 + v3 + v4 + v5 + t + w + z,
+                    data = df,
+                    method = "glm",
+                    metric = metric_acc,
+                    preProcess = c("center", "scale"),
+                    trControl = ctrl_acc)
+
+glm_7_acc <- train(outcome ~ t + v1 + v2 + v3 + v4 + v5 + w + x2 + x3 + x4 + x1:x2 + x1:x3 + x1:v1 + x1:v4 + x1:v5 + x2:x3 + x2:v5 + x3:v1 + x3:v4 + x4:v2 + ns(x1, 7) + ns(z, 7),
+                    data = df,
+                    method = "glm",
+                    metric = metric_acc,
+    preProcess = c("center", "scale"),
+                    trControl = ctrl_acc)
+
+glm_9_acc <- train(outcome ~ ns(t, 7) + ns(v1, 7) + ns(v2, 7) + ns(v3, 7) + 
+    ns(v4, 7) + ns(v5, 7) + ns(w, 7) + ns(x1, 7) + 
+    ns(x2, 7) + ns(x3, 7) + ns(x4, 7) + ns(z, 7),
+                    data = df,
+                    method = "glm",
+                    metric = metric_acc,
+    preProcess = c("center", "scale"),
+                    trControl = ctrl_acc)
+```
+
+```{r, caret_glm_train_roc, cache = TRUE}
+glm_1_roc <- train(outcome ~ m + x1 + x2 + x3 + x4 + v1 + v2 + v3 + v4 + v5, 
+                    data = df,
+                    method = "glm",
+                    preProcess = c("center", "scale"),
+                    metric = metric_roc,
+                    trControl = ctrl_roc)
+
+glm_4_roc <- train(outcome ~ m + x1 + x3 + x4 + x5 + v1 + v2 + v3 + v4 + v5 + t + w + z,
+                    data = df,
+                    method = "glm",
+                    metric = metric_roc,
+                    preProcess = c("center", "scale"),
+                    trControl = ctrl_roc)
+
+glm_7_roc <- train(outcome ~ t + v1 + v2 + v3 + v4 + v5 + w + x2 + x3 + x4 + x1:x2 + x1:x3 + x1:v1 + x1:v4 + x1:v5 + x2:x3 + x2:v5 + x3:v1 + x3:v4 + x4:v2 + ns(x1, 7) + ns(z, 7),
+                    data = df,
+                    method = "glm",
+                    metric = metric_roc,
+    preProcess = c("center", "scale"),
+                    trControl = ctrl_roc)
+
+glm_9_roc <- train(outcome ~ ns(t, 7) + ns(v1, 7) + ns(v2, 7) + ns(v3, 7) + 
+    ns(v4, 7) + ns(v5, 7) + ns(w, 7) + ns(x1, 7) + 
+    ns(x2, 7) + ns(x3, 7) + ns(x4, 7) + ns(z, 7),
+                    data = df,
+                    method = "glm",
+                    metric = metric_roc,
+    preProcess = c("center", "scale"),
+                    trControl = ctrl_roc)
+```
+
+The below code trains regularized regression models with the elastic net penalty.
+
+```{r, class_enet_acc_roc, cache = TRUE}
+glm_int_enet_acc <- train(outcome ~ m*((x1 + x3 + x4 + x5 + v1 + v2 + v3 + v4 + v5 + t + w + z)^2),
+                    data = df,
+                    method = "glmnet",
+                    metric = metric_acc,
+                    preProcess = c("center", "scale"),
+                    trControl = ctrl_acc)
+
+glm_9_enet_acc <- train(outcome ~ ns(t, 7) + ns(v1, 7) + ns(v2, 7) + ns(v3, 7) + 
+    ns(v4, 7) + ns(v5, 7) + ns(w, 7) + ns(x1, 7) + 
+    ns(x2, 7) + ns(x3, 7) + ns(x4, 7) + ns(z, 7),
+                    data = df,
+                    method = "glmnet",
+                    metric = metric_acc,
+    preProcess = c("center", "scale"),
+                    trControl = ctrl_acc)
+
+glm_int_enet_roc <- train(outcome ~ m*((x1 + x3 + x4 + x5 + v1 + v2 + v3 + v4 + v5 + t + w + z)^2),
+                    data = df,
+                    method = "glmnet",
+                    metric = metric_roc,
+                    preProcess = c("center", "scale"),
+                    trControl = ctrl_roc)
+
+glm_9_enet_roc <- train(outcome ~ ns(t, 7) + ns(v1, 7) + ns(v2, 7) + ns(v3, 7) + 
+    ns(v4, 7) + ns(v5, 7) + ns(w, 7) + ns(x1, 7) + 
+    ns(x2, 7) + ns(x3, 7) + ns(x4, 7) + ns(z, 7),
+                    data = df,
+                    method = "glmnet",
+                    metric = metric_roc,
+    preProcess = c("center", "scale"),
+                    trControl = ctrl_roc)
+
+plot(glm_int_enet_acc)
+glm_int_enet_acc$bestTune
+plot(glm_int_enet_roc)
+glm_int_enet_roc$bestTune
+plot(glm_9_enet_acc)
+glm_9_enet_acc$bestTune
+plot(glm_9_enet_roc)
+glm_9_enet_roc$bestTune
+```
+
+For glm_int_enet, using the default tuning grid of `glmnet`, the lasso penalty was applied regardless of whether the performance metric was accuracy or ROC. However, the optimal model according to the ROC had a larger penalty factor compared to the optimal model according to Accuracy.
+
+For glm_9_enet, using the default tuning grid, the lasso penalty was applied and the same lambda penalty factor was optimal regardless of using accuracy or ROC as performance metric.
+
+## Training Classification Models with Non-Linear Methods
+
+The below code trains a neural net on a custom tuning grid.
+
+```{r, class_nnet, cache = TRUE}
+nnet_grid <- expand.grid(size = c(5,9,13,17),
+                         decay = exp(seq(-6, 0, length.out = 11)))
+
+nnet_base_acc <- caret::train(outcome ~ m + x1 + x2 + x3 + x4 + v1 + v2 + v3 + v4 + v5,
+                          data = df,
+                          method = 'nnet',
+                          metric = metric_acc,
+                          trControl = ctrl_acc,
+                          preProcess = c('center', 'scale'),
+                          trace = FALSE,
+                          tuneGrid = nnet_grid)
+
+nnet_exp_acc <- caret::train(outcome ~ m + x1 + x3 + x4 + x5 + v1 + v2 + v3 + v4 + v5 + t + w + z,
+                          data = df,
+                          method = 'nnet',
+                          metric = metric_acc,
+                          trControl = ctrl_acc,
+                          preProcess = c('center', 'scale'),
+                          trace = FALSE,
+                          tuneGrid = nnet_grid)
+
+nnet_base_roc <- caret::train(outcome ~ m + x1 + x2 + x3 + x4 + v1 + v2 + v3 + v4 + v5,
+                          data = df,
+                          method = 'nnet',
+                          metric = metric_roc,
+                          trControl = ctrl_roc,
+                          preProcess = c('center', 'scale'),
+                          trace = FALSE,
+                          tuneGrid = nnet_grid)
+
+nnet_exp_roc <- caret::train(outcome ~ m + x1 + x3 + x4 + x5 + v1 + v2 + v3 + v4 + v5 + t + w + z,
+                          data = df,
+                          method = 'nnet',
+                          metric = metric_roc,
+                          trControl = ctrl_roc,
+                          preProcess = c('center', 'scale'),
+                          trace = FALSE,
+                          tuneGrid = nnet_grid)
+
+plot(nnet_base_acc)
+nnet_base_acc$bestTune
+plot(nnet_base_roc)
+nnet_base_roc$bestTune
+plot(nnet_exp_acc)
+nnet_exp_acc$bestTune
+plot(nnet_exp_roc)
+nnet_exp_roc$bestTune
+```
+
+The optimal values for nnet trained on base features is size = 13, decay = .549 when accuracy is the performance metric and size = 17, decay = .549 when ROC is the performance metric.
+
+The optimal values for nnet trained on the expanded feature set is size = 9, decay = .549 when accuracy is the performance metric and size = 9, decay = .549 when ROC is the performance metric.
+
+The below code trains a random forest model
+
+```{r, regression_rf, cache = TRUE}
+rf_base_acc <- train(outcome ~ m + x1 + x2 + x3 + x4 + v1 + v2 + v3 + v4 + v5,
+                     data = df,
+                     method = 'rf',
+                     metric = metric_acc,
+                     trControl = ctrl_acc,
+                     importance = TRUE)
+
+rf_exp_acc <- train(outcome ~ m + x1 + x3 + x4 + x5 + v1 + v2 + v3 + v4 + v5 + t + w + z,
+                    data = df,
+                    method = 'rf',
+                    metric = metric_acc,
+                    trControl = ctrl_acc,
+                    importance = TRUE)
+
+rf_base_roc <- train(outcome ~ m + x1 + x2 + x3 + x4 + v1 + v2 + v3 + v4 + v5,
+                     data = df,
+                     method = 'rf',
+                     metric = metric_roc,
+                     trControl = ctrl_roc,
+                     importance = TRUE)
+
+rf_exp_roc <- train(outcome ~ m + x1 + x3 + x4 + x5 + v1 + v2 + v3 + v4 + v5 + t + w + z,
+                    data = df,
+                    method = 'rf',
+                    metric = metric_roc,
+                    trControl = ctrl_roc,
+                    importance = TRUE)
+
+rf_base_acc
+rf_base_roc
+rf_exp_acc
+rf_exp_roc
+```
+
+When ROC is the performance metric used, optimal values of mtry are in the middle of the tuning grid (5, and 7, respectively, for the base and expanded feature set). When accuracy is the performance metric used, the optimal values of mtry are the high end of the tuning grid equal to the number of input features (9 and 12, respectively, for the base and expanded feature sets).
+
+The below code trains a gradient-boosted tree via XGBoost.
+
+```{r, regression_xgb, cache = TRUE}
+xgb_base_acc <- train(outcome ~ m + x1 + x2 + x3 + x4 + v1 + v2 + v3 + v4 + v5,
+                      data = df,
+                      method = 'xgbTree',
+                      trControl = ctrl_acc,
+                      metric = metric_acc,
+                      verbosity = 0)
+
+xgb_exp_acc <- train(outcome ~ m + x1 + x3 + x4 + x5 + v1 + v2 + v3 + v4 + v5 + t + w + z,
+                     data = df,
+                     method = 'xgbTree',
+                     trControl = ctrl_acc,
+                     metric = metric_acc,
+                     verbosity = 0)
+
+xgb_base_roc <- train(outcome ~ m + x1 + x2 + x3 + x4 + v1 + v2 + v3 + v4 + v5,
+                      data = df,
+                      method = 'xgbTree',
+                      trControl = ctrl_roc,
+                      metric = metric_roc,
+                      verbosity = 0)
+
+xgb_exp_roc <- train(outcome ~ m + x1 + x3 + x4 + x5 + v1 + v2 + v3 + v4 + v5 + t + w + z,
+                     data = df,
+                     method = 'xgbTree',
+                     trControl = ctrl_roc,
+                     metric = metric_roc,
+                     verbosity = 0)
+
+plot(xgb_base_acc)
+xgb_base_acc$bestTune
+plot(xgb_exp_acc)
+xgb_exp_acc$bestTune
+plot(xgb_base_roc)
+xgb_base_roc$bestTune
+plot(xgb_exp_roc)
+xgb_exp_roc$bestTune
+```
+
+## Training Partial Least Squares and Multivariate Adaptive Regression Spline Classification Models
+
+```{r, class_pls, cache = TRUE}
+pls_exp_acc <- train(outcome ~ m + x1 + x3 + x4 + x5 + v1 + v2 + v3 + v4 + v5 + t + w + z,
+                     data = df,
+                     method = 'pls',
+                     trControl = ctrl_acc,
+                     metric = metric_acc,
+                     preProcess = c('center', 'scale'),
+                     tuneLength = 20)
+
+pls_exp_roc <- train(outcome ~ m + x1 + x3 + x4 + x5 + v1 + v2 + v3 + v4 + v5 + t + w + z,
+                     data = df,
+                     method = 'pls',
+                     trControl = ctrl_roc,
+                     metric = metric_roc,
+                     preProcess = c('center', 'scale'),
+                     tuneLength = 20)
+
+plot(pls_exp_acc)
+pls_exp_acc
+plot(pls_exp_roc)
+pls_exp_roc
+```
+
+The optimal number of components for the PLS model is 12 when it is selected by maximizing accuracy and it is 13 when it is selected by maximizing the area under the ROC curve.
+
+```{r, class_mars, cache = TRUE, warning=FALSE}
+mars_exp_acc <- train(outcome ~ m + x1 + x3 + x4 + x5 + v1 + v2 + v3 + v4 + v5 + t + w + z,
+                     data = df,
+                     method = 'earth',
+                     trControl = ctrl_acc,
+                     metric = metric_acc,
+                     preProcess = c('center', 'scale'),
+                     tuneGrid = expand.grid(nprune = seq(2, 50, by = 4),
+                         degree = seq(1, 3, by = 1)))
+
+mars_exp_roc <- train(outcome ~ m + x1 + x3 + x4 + x5 + v1 + v2 + v3 + v4 + v5 + t + w + z,
+                     data = df,
+                     method = 'earth',
+                     trControl = ctrl_roc,
+                     metric = metric_roc,
+                     preProcess = c('center', 'scale'),
+                     tuneGrid = expand.grid(nprune = seq(2, 50, by = 4),
+                         degree = seq(1, 3, by = 1)))
+
+plot(mars_exp_acc)
+mars_exp_acc$bestTune
+plot(mars_exp_roc)
+mars_exp_roc$bestTune
+```
+
+The best model when accuracy is used to select it uses tuning parameters ntune = 22 and degree = 1. The best model when area under the ROC curve is used to select it uses tuning parameters nprune = 26 and degree = 2.
+
+## Classification Model Comparison
+
+The below code compares the linear models trained through cross-validation, resampling, and the elastic net penalty, as well as the neural networks and tree-based models.
+
+```{r, caret_class_comparisons}
+caret_acc_compare <- resamples(
+  list(base_add = glm_1_acc,
+       expanded_add = glm_4_acc,
+       add_splines_7_df = glm_7_acc,
+       splines_7_df = glm_9_acc,
+       expanded_int_enet = glm_int_enet_acc,
+       splines_7_df_enet = glm_9_enet_acc,
+       nnet_base = nnet_base_acc,
+       nnet_expanded = nnet_exp_acc,
+       rf_base = rf_base_acc,
+       rf_expanded = rf_exp_acc,
+       xgb_base = xgb_base_acc,
+       xgb_expanded = xgb_exp_acc,
+       pls_expanded = pls_exp_acc,
+       mars_expanded = mars_exp_acc))
+
+caret_roc_compare <- resamples(
+  list(base_add = glm_1_roc,
+       expanded_add = glm_4_roc,
+       add_splines_7_df = glm_7_roc,
+       splines_7_df = glm_9_roc,
+       expanded_int_enet = glm_int_enet_roc,
+       splines_7_df_enet = glm_9_enet_roc,
+       nnet_base = nnet_base_roc,
+       nnet_expanded = nnet_exp_roc,
+       rf_base = rf_base_roc,
+       rf_expanded = rf_exp_roc,
+       xgb_base = xgb_base_roc,
+       xgb_expanded = xgb_exp_roc,
+       pls_expanded = pls_exp_roc,
+       mars_expanded = mars_exp_roc))
+
+dotplot(caret_acc_compare)
+dotplot(caret_roc_compare)
+
+```
+
+The best model, by Accuracy and Area under the ROC curve metrics, is the gradient-boosted tree trained on the expanded feature set.
+
+```{r, save_xgb_regression_models}
+xgb_base_acc %>% readr::write_rds("xgb_base_acc.rds")
+xgb_exp_acc %>% readr::write_rds("xgb_exp_acc.rds")
+xgb_base_roc %>% readr::write_rds("xgb_base_roc.rds")
+xgb_exp_roc %>% readr::write_rds("xgb_exp_roc.rds")
+```

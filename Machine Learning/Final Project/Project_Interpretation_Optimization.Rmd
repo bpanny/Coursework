@@ -1,0 +1,544 @@
+---
+title: "INFSCI 2595 Fall 2022 Final Project Interpretation and Optimization"
+author: "Benjamin Panny"
+date: "Submission time: December 13, 2022 at 11:00PM EST"
+output: html_document
+---
+
+```{r setup, include=TRUE}
+knitr::opts_chunk$set(echo = TRUE, cache = TRUE)
+```
+
+
+# Project Overview (from Project Guidelines PDF)
+
+Surface coating helps materials people interact with last longer.
+
+Coating is created by combining constituent materials together.
+
+Constituents are combined in a manufacturing process following a specific set of operating conditions.
+
+Coating is applied to a specimen and the speciment is subjected to an accelerated life test.
+
+An accelerated life test includes conditions such as extreme temperatures and humidity for extended periods of time. These tests simulate years of typical material use. The outcome of these tests is the amount of corroded surface.
+
+The aim of experimenting with surface coatings is to minimize the amount of corroded surface after the accelerated life test. Experiments can be augmented by training machine learning models that find the optimal constituents and process settings to minimize corrosion.
+
+The goals of this project are as follows:
+
+1. Build machine learning models and use the best model to identify input values that minimize the output. This involves training models to predict the fraction of corroded surface per test as a function of the inputs.
+1. Understand which inputs are most important at causing the fraction of corroded surface to be less than 0.33. This involves identifying the best binary classifier.
+1. Train models that use a mixture of provided inputs and derived features to identify if the derived features are as important as subject matter experts believe they are.
+1. Understand if the machine used to manufacture coatings influences the test response.
+
+# Data Description (from Project Guidelines PDF)
+
+The inputs consist of three groups of variables:
+
+* Chemistry variables: `x1, x2, x3, x4`
+  * These are fractions between 0 and 1. Providing the proportion of a coating material constituted by the constituent.
+  * A "balance" constituent, `x5`, is also present in the coating material. The fraction associated with the balance is `x5 = 1 - (x1 + x2 + x3 + x4)`. This means a subset of the first four inputs must be selected to include in the model when `x5` is included because including all of them will cause one of their coefficients to be undefined because of singularities. That is, through x5, each can be written as having an exact linear relationship with the sum of all the others. This means the effect of one input variable can't be estimated when holding all the other input variables constant because the change in the one is a change in the others by definition.
+* Manufacturing process variables: `v1, v2, v3, v4, v5`
+  * These represent how chemical constituents are combined to create a coating.
+* Machine used to manufacture the coating: `m`
+  * A categorical variable.
+
+Derived features proposed by subject matter experts:
+* The "w" ratio: `w = x2 / (x3 + x4)`
+* The "z" ratio: `z = (x1 + x2) / (x4 + x5)`
+* The product of v1 and v2: `t = v1 * v2`
+
+The response variable (`output`) is the fraction of the specimen surface that corroded after the test completed.
+* Regression models will be trained to predict the logit-transformed response: `y`
+* Classification models will be trained to predict the threshold-transformed response: `outcome`
+
+Rows/observations correspond to a test result and its inputs.
+
+## Load Packages
+
+```{r, load_packages}
+library(tidyverse)
+library(splines)
+library(caret)
+library(rstanarm)
+```
+## Read Data, Derive Features, and Transform the Response
+
+```{r, read_data}
+df <- readr::read_csv('fall2022_finalproject.csv', col_names = TRUE)
+```
+
+```{r, derive_features_and_transform_response}
+df <- df %>% 
+  mutate(x5 = 1 - (x1 + x2 + x3 + x4),
+         w = x2 / (x3 + x4),
+         z = (x1 + x2) / (x5 + x4),
+         t = v1 * v2,
+         y = boot::logit(output),
+         outcome = ifelse(output < 0.33, 'event', 'non_event'),
+         outcome = factor(outcome, levels = c("event", "non_event")),
+         outcome_y = ifelse(outcome == 'event', 1, 0))
+
+df_nnet_reg <- df %>%
+  select(-outcome, -outcome_y, -output)
+```
+
+Before exploring the data, convert the data to long format for certain visualizations.
+
+```{r, long_format}
+lf <- df %>% 
+  tibble::rowid_to_column() %>% 
+  pivot_longer(c(x1, x2, x3, x4, v1, v2, v3, v4, v5, x5, w, z, t))
+```
+
+Define some functions I'll use later to evaluate models
+
+
+```{r, define_functions}
+extract_metrics <- function(mod_object, mod_name)
+{
+  broom::glance(mod_object) %>% 
+    mutate(model_name = mod_name)
+}
+
+extract_sig_coef <- function(mod_object)
+{
+  # Extract the p-values
+  p_values <- summary(mod_object)$coefficients[, 4]
+  
+  # Find the indices of the coefficients that have p-values less than .05
+  significant_indices <- which(p_values < 0.05)
+  
+  # Extract significant coefficients
+  significant_coefs <- summary(mod_object)$coefficients[c(significant_indices),]
+  significant_coefs
+}
+```
+
+# Interpretation and Optimization
+
+## Best Performing Models' Performance on Base Vs. Expanded Feature Sets
+
+Load the best models from the Regression and Classification modules.
+
+```{r, load_best_regression_classification_models}
+re_load_xgb_base_reg <- readr::read_rds("xgb_base_reg.rds")
+re_load_xgb_exp_reg <- readr::read_rds("xgb_exp_reg.rds")
+re_load_xgb_base_acc <- readr::read_rds("xgb_base_acc.rds")
+re_load_xgb_exp_acc <- readr::read_rds("xgb_exp_acc.rds")
+re_load_xgb_base_roc <- readr::read_rds("xgb_base_roc.rds")
+re_load_xgb_exp_roc <- readr::read_rds("xgb_exp_roc.rds")
+```
+
+```{r, compared_base_vs_expanded_feature_models}
+caret_rmse_compare_xgb <- resamples(list(xgb_base = re_load_xgb_base_reg,
+                                    xgb_expanded = re_load_xgb_exp_reg))
+
+caret_acc_compare_xgb <- resamples(list(xgb_base_acc = re_load_xgb_base_acc,
+                                        xgb_exp_acc = re_load_xgb_exp_acc))
+
+caret_roc_compare_xgb <- resamples(list(xgb_base_roc = re_load_xgb_base_roc,
+                                        xgb_exp_roc = re_load_xgb_exp_roc))
+
+dotplot(caret_rmse_compare_xgb)
+dotplot(caret_acc_compare_xgb)
+dotplot(caret_roc_compare_xgb)
+```
+
+My best performing model, the xGBoosted tree, performs best when the expanded feature set is used in regression according to the RMSE  metric and in classification according to both the ROC and accuracy metrics.
+
+## Visualize Important Variables In Regression and Classification Gradient-Boosted Trees
+
+```{r, important_variables_xgb}
+plot(varImp(re_load_xgb_exp_reg))
+plot(varImp(re_load_xgb_exp_acc))
+plot(varImp(re_load_xgb_exp_roc))
+```
+
+The three most important  variables for the regression problem in the xGBoosted tree are z, x1, and w, in this order. In the classification problem, the three most important variables are x1, w, and z, in this order.
+
+## Visualize Predictive Trends and Surfaces
+
+```{r, tidy_predict_functions}
+tidy_predict_xgb <- function(mod, xnew)
+{
+  pred_df <- predict(mod, xnew) %>% 
+    as.data.frame() %>% tibble::as_tibble()
+  
+  xnew %>% bind_cols(pred_df)
+}
+```
+
+Again, the three most important variables for the regression problem in the xGBoosted tree are z, x1, and w, in this order. In the classification problem, the three most important variables are x1, w, and z, in this order. Therefore, the visualization grid for the predictive trends of the logit-transformed response will serve to show the trend as a function of z and x1. The visualization grid for the surface of the event probability will be shown as a function of x1, w, and z. Values of less important variables will be kept constant, assuming the trends and surfaces as functions of the derived features are the same even when they are not truly derived from the values of the base features.
+
+```{r, viz_grids}
+viz_grid <- expand.grid(t = median(df$t),
+                        m = "C", #is the mode
+                        v1 = median(df$v1),
+                        v2 = median(df$v2),
+                        v3 = median(df$v3),
+                        v4 = median(df$v4),
+                        v5 = median(df$v5),
+                        w = median(df$w),
+                        x1 = seq(min(df$x1), max(df$x1), length.out = 9),
+                        x5 = median(df$x5),
+                        x3 = median(df$x3),
+                        x4 = median(df$x4),
+                        z = seq(min(df$z), max(df$z), length.out = 101),
+                        KEEP.OUT.ATTRS = FALSE,
+                        stringsAsFactors = FALSE) %>% 
+  as.data.frame() %>% tibble::as_tibble()
+
+viz_grid_comp <- expand.grid(t = median(df$t),
+                        m = "B",
+                        v1 = median(df$v1),
+                        v2 = median(df$v2),
+                        v3 = median(df$v3),
+                        v4 = median(df$v4),
+                        v5 = median(df$v5),
+                        w = median(df$w),
+                        x1 = seq(min(df$x1), max(df$x1), length.out = 9),
+                        x5 = median(df$x5),
+                        x3 = median(df$x3),
+                        x4 = median(df$x4),
+                        z = seq(min(df$z), max(df$z), length.out = 101),
+                        KEEP.OUT.ATTRS = FALSE,
+                        stringsAsFactors = FALSE) %>% 
+  as.data.frame() %>% tibble::as_tibble()
+
+viz_grid_surface <- expand.grid(t = median(df$t),
+                                m = "C", #is the mode
+                                v1 = median(df$v1),
+                                v2 = median(df$v2),
+                                v3 = median(df$v3),
+                                v4 = median(df$v4),
+                                v5 = median(df$v5),
+                                w = seq(min(df$w), max(df$w), length.out = 101),
+                                x1 = seq(min(df$x1), max(df$x1), length.out = 101),
+                                x5 = median(df$x5),
+                                x3 = median(df$x3),
+                                x4 = median(df$x4),
+                                z = seq(min(df$z), max(df$z), length.out = 6),
+                                KEEP.OUT.ATTRS = FALSE,
+                                stringsAsFactors = FALSE) %>% 
+  as.data.frame() %>% tibble::as_tibble()
+
+viz_grid_surface_comp <- expand.grid(t = median(df$t),
+                                m = "B", 
+                                v1 = median(df$v1),
+                                v2 = median(df$v2),
+                                v3 = median(df$v3),
+                                v4 = median(df$v4),
+                                v5 = median(df$v5),
+                                w = seq(min(df$w), max(df$w), length.out = 101),
+                                x1 = seq(min(df$x1), max(df$x1), length.out = 101),
+                                x5 = median(df$x5),
+                                x3 = median(df$x3),
+                                x4 = median(df$x4),
+                                z = seq(min(df$z), max(df$z), length.out = 6),
+                                KEEP.OUT.ATTRS = FALSE,
+                                stringsAsFactors = FALSE) %>% 
+  as.data.frame() %>% tibble::as_tibble()
+
+```
+
+
+```{r, xgb_predictions, cache = TRUE}
+
+xgb_reg_pred <- tidy_predict_xgb(re_load_xgb_exp_reg, viz_grid)
+xgb_reg_pred_catcomp <- tidy_predict_xgb(re_load_xgb_exp_reg, viz_grid_comp)
+xgb_acc_surface <- predict(object = re_load_xgb_exp_acc,
+                               newdata = viz_grid_surface,
+                               type = 'prob')
+xgb_acc_surface_catcomp <- predict(object = re_load_xgb_exp_acc,
+                               newdata = viz_grid_surface_comp,
+                               type = 'prob')
+
+```
+
+```{r, viz_predictive_trend}
+xgb_reg_pred %>%
+  ggplot(mapping = aes(x = z, y = .)) +
+  geom_line() +
+  facet_wrap(~x1, labeller = "label_both") +
+  theme_bw()
+```
+
+The curve of the logit-transformed response is mostly flat at smaller values of z after an initial dip, regardless of x1's value, and then the curve increases as z becomes greater than approximately 2.5. This trend w/r/t z is consistent across values of x1. Based on this visualization, the logit-transformed response is lowest when z is approximately 2 and x1 is approximately .23, while the other inputs are at their empirical medians. Let's see if the trend is the same when the categorical value is B
+
+```{r, viz_predictive_trend_b}
+xgb_reg_pred_catcomp %>%
+  ggplot(mapping = aes(x = z, y = .)) +
+  geom_line() +
+  facet_wrap(~x1, labeller = "label_both") +
+  theme_bw()
+```
+
+The trends are the same when the categorical variable is equal to B compared to C, therefore the optimal input values appear to be the same. Given the EDA also showed no visible differences between the machines, I will not visualize the trends further with different categorical variable values.
+
+```{r viz_predictive_surface}
+viz_grid_surface %>%
+  mutate(mu = xgb_acc_surface$event) %>%
+  ggplot(mapping = aes(x = x1, y = w)) +
+  geom_raster(mapping = aes(fill = mu)) +
+  facet_wrap( ~ z) +
+  scale_fill_gradient2(low = 'blue', mid = 'white', high = 'red',
+                       midpoint = 0.5,
+                       limits = c(0, 1))
+```
+
+The event surface as a function of x1 and w follows an interesting pattern, where particular regions of the x1 by w surface have high event probabilities and other regions have low event probabilities. This surface appears consistent across values of z until z becomes approximately 4.07 or greater. The event pattern is strongest at z = 2.05 in the above visualization. Based on this visualization, the event is most likely when x1 is approximately 0.2, w is approximately 0.2, and z is approximately 2. Let's see if the surface is the same when the categorical variable is set to "B" instead of "C".
+
+```{r viz_predictive_surface_b}
+viz_grid_surface_comp %>%
+  mutate(mu = xgb_acc_surface$event) %>%
+  ggplot(mapping = aes(x = x1, y = w)) +
+  geom_raster(mapping = aes(fill = mu)) +
+  facet_wrap( ~ z) +
+  scale_fill_gradient2(low = 'blue', mid = 'white', high = 'red',
+                       midpoint = 0.5,
+                       limits = c(0, 1))
+```
+
+Yes it is, the optimal input values appear the same regardless of whether the machine is "B" or "C". Given the EDA also showed no visible differences between the machines, I will not visualize the surfaces further with different categorical variable values.
+
+## Minimize Output with optim()
+
+We can try to obtain the same insights about what inputs minimize the output by using the optim function. This is advantageous because the real event probability surface and real predictive trend depend on more than two or three inputs that we are able to visualize. It also makes it easy to ensure that the derived features are rooted in the true values of base features. Optim can only optimize continuous variables, so two minimization functions will be defined, one for machine = "A" and another for machine = "B". Additionally, optim will be called with constrOptim, since our optimization problem is constrained (x1:x4 must sum to 1).
+
+For the functions to be optimized, I want the x inputs to be unbounded, thus I will transform them using `boot::inv.logit()` in the function, such that optim can feed any value of x into the function but only x values betwen 0 and 1 will be used to make predictions. I want the v inputs to be bounded within their empirical ranges, so I will specify this in optim and require myself to use the `L-BFGS-B` method.
+
+```{r, minimize_output_function}
+minimize_output_reg_B <- function(inputs, model, v_info = NULL) {
+  # create a data frame with the input feature values
+   x1 <- boot::inv.logit(inputs[1])
+  x2 <- boot::inv.logit(inputs[2])
+  x3 <- boot::inv.logit(inputs[3])
+  x4 <- boot::inv.logit(inputs[4])
+  v1 <- inputs[5]#boot::inv.logit(inputs[5])*v_info$v1_range + v_info$v1_lwr
+  v2 <- inputs[6]#boot::inv.logit(inputs[6])*v_info$v2_range + v_info$v2_lwr
+  v3 <- inputs[7]#boot::inv.logit(inputs[7])*v_info$v3_range + v_info$v3_lwr
+  v4 <- inputs[8]#boot::inv.logit(inputs[8])*v_info$v4_range + v_info$v4_lwr
+  v5 <- inputs[9]#boot::inv.logit(inputs[9])*v_info$v5_range + v_info$v5_lwr
+  pred_grid <- data_frame(m = "B", x1 = x1, x3 = x3, x4 = x4, x5 = 1 - (x1 + x2 + x3 + x4), v1 = v1, v2 = v2, v3 = v3, v4 = v4, v5 = v5, t = v1*v2, w = x2 / (x3 + x4), z = (x1 + x2) / (x4 + x5))
+
+  # use the model to predict the output for the given input feature values
+  pred <- predict(model, pred_grid)
+
+  # return the predicted output
+  pred
+}
+
+minimize_output_reg_C <- function(inputs, model, v_info = NULL) {
+  # create a data frame with the input feature values
+   x1 <- boot::inv.logit(inputs[1])
+  x2 <- boot::inv.logit(inputs[2])
+  x3 <- boot::inv.logit(inputs[3])
+  x4 <- boot::inv.logit(inputs[4])
+  v1 <- inputs[5]#boot::inv.logit(inputs[5])*v_info$v1_range + v_info$v1_lwr
+  v2 <- inputs[6]#boot::inv.logit(inputs[6])*v_info$v2_range + v_info$v2_lwr
+  v3 <- inputs[7]#boot::inv.logit(inputs[7])*v_info$v3_range + v_info$v3_lwr
+  v4 <- inputs[8]#boot::inv.logit(inputs[8])*v_info$v4_range + v_info$v4_lwr
+  v5 <- inputs[9]#boot::inv.logit(inputs[9])*v_info$v5_range + v_info$v5_lwr
+  pred_grid <- tibble(m = "C", x1 = x1, x3 = x3, x4 = x4, x5 = 1 - (x1 + x2 + x3 + x4), v1 = v1, v2 = v2, v3 = v3, v4 = v4, v5 = v5, t = v1*v2, w = x2 / (x3 + x4), z = (x1 + x2) / (x4 + 1 - (x1 + x2 + x3 + x4)))
+
+  # use the model to predict the output for the given input feature values
+  pred <- predict(model, pred_grid)
+
+  pred
+}
+```
+
+
+```{r, call_optim}
+uncenter_unscale <- list(
+  v1_range = max(df$v1) - min(df$v1),
+  v2_range = max(df$v2) - min(df$v2),
+  v3_range = max(df$v3) - min(df$v3),
+  v4_range = max(df$v4) - min(df$v4),
+  v5_range = max(df$v5) - min(df$v5),
+  v1_lwr = min(df$v1),
+  v2_lwr = min(df$v2),
+  v3_lwr = min(df$v3),
+  v4_lwr = min(df$v4),
+  v5_lwr = min(df$v5)
+)
+  
+xgb_exp_reg_opt_c <- optim(c(rep(0,4),.5,.5,1.2,.5,.5),
+                      minimize_output_reg_C,
+                      model = re_load_xgb_exp_reg,
+                      v_info = uncenter_unscale,
+                      gr = NULL,
+                      method = "L-BFGS-B",
+                      lower = c(rep(-Inf,4), min(df$v1), min(df$v2), min(df$v3), min(df$v4), min(df$v5)),
+                      upper = c(rep(Inf,4), max(df$v1), max(df$v2), max(df$v3), max(df$v4), max(df$v5)),
+                      control = list( fnscale=1, maxit = 50000, pgtol = 1e-8))
+xgb_exp_reg_opt_c
+```
+
+There were only two iterations. This probably indicates that many input values achieve zero gradients and that the ~9 dimensional response surface of the function is rough. Perhaps there will be more success using a different regression model that achieved fairly good performance while retaining a linear combination of features. I will use lm_9_caret.
+
+```{r, lm_9_caret}
+re_load_lm_9_caret <- readr::read_rds("lm_9_caret.rds")
+lm_9_caret_opt_c <- optim(c(rep(0,4),.5,.5,1.2,.5,.5),
+                      minimize_output_reg_C,
+                      model = re_load_xgb_exp_reg,
+                      v_info = uncenter_unscale,
+                      gr = NULL,
+                      method = "L-BFGS-B",
+                      lower = c(rep(-Inf,4), min(df$v1), min(df$v2), min(df$v3), min(df$v4), min(df$v5)),
+                      upper = c(rep(Inf,4), max(df$v1), max(df$v2), max(df$v3), max(df$v4), max(df$v5)),
+                      control = list( fnscale=1, maxit = 50000, pgtol = 1e-8))
+lm_9_caret_opt_c
+```
+
+Still no luck. Scaling and centering the v values does not work either.
+
+# Simulating Data
+
+The following chunk generates small (n=25), medium (n = 100), large (n = 1000) samples and defines a latent causal model.
+
+```{r, define_latent_causal_model}
+# generate small, medium and large input datasets
+m <- c("A","B","C","D")
+m_small <- sample(m, size = 25, replace = TRUE) %>% as_tibble()
+m_med <- sample(m, size = 100, replace = TRUE) %>% as_tibble()
+m_large <- sample(m, size = 1000, replace = TRUE) %>% as_tibble()
+
+x <- seq(0,10, length = 1000)
+x_small <- sample(x, size = 25, replace = TRUE) %>% as_tibble()
+x_med <- sample(x, size = 100, replace = TRUE) %>% as_tibble()
+x_large <- sample(x, size = 1000, replace = TRUE) %>% as_tibble()
+
+w <-seq(0,3, length = 1000)
+w_small <- sample(w, size = 25, replace = TRUE) %>% as_tibble()
+w_med <- sample(w, size = 100, replace = TRUE) %>% as_tibble()
+w_large <- sample(w, size = 1000, replace = TRUE) %>% as_tibble()
+
+z <-seq(1,11, length = 1000)
+z_small <- sample(z, size = 25, replace = TRUE) %>% as_tibble()
+z_med <- sample(z, size = 100, replace = TRUE) %>% as_tibble()
+z_large <- sample(z, size = 1000, replace = TRUE) %>% as_tibble()
+
+# combine into tibbles
+small_df <- m_small %>% bind_cols(x_small) %>% bind_cols(w_small) %>% bind_cols(z_small)
+small_df <- rename(small_df, m = value...1, x = value...2, w = value...3, z = value...4)
+med_df <- m_med %>% bind_cols(x_med) %>% bind_cols(w_med) %>% bind_cols(z_med)
+med_df <- rename(med_df, m = value...1, x = value...2, w = value...3, z = value...4)
+large_df <- m_large %>% bind_cols(x_large) %>% bind_cols(w_large) %>% bind_cols(z_large)
+large_df <- rename(large_df, m = value...1, x = value...2, w = value...3, z = value...4)
+
+# define model matrices with basis functions
+small_matrix <- model.matrix(~ m + sin(x) + I(w^3) + I(z^2), data = small_df)
+med_matrix <- model.matrix(~ m + sin(x) + I(w^3) + I(z^2), data = med_df)
+large_matrix <- model.matrix(~ m + sin(x) + I(w^3) + I(z^2), data = large_df)
+
+# define true coefficients
+true_betas <- c(1,2,2,0,1,.1,-.5)
+
+# define true response values
+small_y <- small_matrix %*% true_betas
+med_y <- med_matrix %*% true_betas
+large_y <- large_matrix %*% true_betas
+
+# bind together training datasets
+small_train <- small_y %>% bind_cols(small_df)
+small_train <- rename(small_train, y = ...1)
+med_train <- med_y %>% bind_cols(med_df)
+med_train <- rename(med_train, y = ...1)
+large_train <- large_y %>% bind_cols(large_df)
+large_train <- rename(large_train, y = ...1)
+```
+
+The following code chunk fits Bayesian Linear Models
+
+```{r, load stan, cache = TRUE}
+library(rstanarm)
+library(rstan)
+```
+
+```{r, mc options}
+options(mc.cores = parallel::detectCores())
+```
+
+```{r, fit_sim_blms}
+# blm_small <- stan_lm(y ~ m + sin(x) + I(w^3) + I(z^2), data = small_train,
+#                  prior = R2(location = 0.5),
+#                  seed = 123456) 
+# 
+# xblm_med <- stan_lm(y ~ m + sin(x) + I(w^3) + I(z^2), data = med_train,
+#                  prior = R2(location = 0.5),
+#                  seed = 123456) 
+# 
+# blm_large <- stan_lm(y ~ m + sin(x) + I(w^3) + I(z^2), data = large_train,
+#                  prior = R2(location = 0.5),
+#                  seed = 123456) 
+# 
+# blm_med <- xblm_med
+```
+
+The following error message is given when using the exact model formulation used to generate the data: "Stan model 'lm' does not contain samples". Perhaps some noise injected into the data generation process will help.
+
+
+```{r, gen_data_w_noise}
+small_y <- small_matrix %*% true_betas + rnorm(25)
+med_y <- med_matrix %*% true_betas + rnorm(100)
+large_y <- large_matrix %*% true_betas + rnorm(1000)
+
+# bind together training datasets
+small_train <- small_y %>% bind_cols(small_df)
+small_train <- rename(small_train, y = ...1)
+med_train <- med_y %>% bind_cols(med_df)
+med_train <- rename(med_train, y = ...1)
+large_train <- large_y %>% bind_cols(large_df)
+large_train <- rename(large_train, y = ...1)
+```
+
+```{r, fit_sim_blms_w_noise}
+blm_small <- stan_lm(y ~ m + sin(x) + I(w^3) + I(z^2), data = small_train,
+                 prior = R2(location = 0.5),
+                 seed = 123456)
+
+blm_med <- stan_lm(y ~ m + sin(x) + I(w^3) + I(z^2), data = med_train,
+                 prior = R2(location = 0.5),
+                 seed = 123456)
+
+blm_large <- stan_lm(y ~ m + sin(x) + I(w^3) + I(z^2), data = large_train,
+                 prior = R2(location = 0.5),
+                 seed = 123456)
+```
+
+```{r, viz_blm_post_summary_stats}
+plot_true_betas <- true_betas %>% bind_cols(colnames(small_matrix))
+  
+blm_small_summary <- blm_small$stan_summary
+blm_small_summary <- blm_small_summary %>% as_tibble() %>% mutate(name = rownames(blm_small_summary))
+blm_small_summary %>% filter(!name %in% c("log-posterior", "R2", "mean_PPD","log-fit_ratio")) %>%
+  ggplot(mapping = aes(x = mean, y = as.factor(name))) +
+  geom_point(color = 'blue') +
+  geom_point(color = 'red', mapping = aes(x = ...1, y = ...2), data = plot_true_betas) +
+  geom_errorbar(mapping = aes(xmin = `2.5%`, xmax = `97.5%`), color = 'blue') +
+  labs(title = "Coefficients from blm_small")
+
+blm_med_summary <- blm_med$stan_summary
+blm_med_summary <- blm_med_summary %>% as_tibble() %>% mutate(name = rownames(blm_med_summary))
+blm_med_summary %>% filter(!name %in% c("log-posterior", "R2", "mean_PPD","log-fit_ratio")) %>%
+  ggplot(mapping = aes(x = mean, y = as.factor(name))) +
+  geom_point(color = 'blue') +
+  geom_point(color = 'red', mapping = aes(x = ...1, y = ...2), data = plot_true_betas) +
+  geom_errorbar(mapping = aes(xmin = `2.5%`, xmax = `97.5%`), color = 'blue') +
+  labs(title = "Coefficients from blm_med")
+
+blm_large_summary <- blm_large$stan_summary
+blm_large_summary <- blm_large_summary %>% as_tibble() %>% mutate(name = rownames(blm_large_summary))
+blm_large_summary %>% filter(!name %in% c("log-posterior", "R2", "mean_PPD","log-fit_ratio")) %>%
+  ggplot(mapping = aes(x = mean, y = as.factor(name))) +
+  geom_point(color = 'blue') +
+  geom_point(color = 'red', mapping = aes(x = ...1, y = ...2), data = plot_true_betas) +
+  geom_errorbar(mapping = aes(xmin = `2.5%`, xmax = `97.5%`), color = 'blue') +
+  labs(title = "Coefficients from blm_large")
+```
+
+While I did receive warning from stan_lm() that divergent transitions occurred after warm-ups in at least one of the Bayesian linear model, the above visualizations appear to show the the Bayesian Linear models, for the most part, do quite well to capture the true coefficients in their confidence intervals for their coefficient estimates. However, this is *with* the true model formulation being known and specified to be estimated, which is somewhat disappointing.
+
+

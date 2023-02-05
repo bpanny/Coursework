@@ -1,6 +1,6 @@
 Welcome,
 
-The Machine Learning folder contains structured HWs and a Final Project that involves building Bayesian and non-Bayesian linear and generalized linear models for regression and classification for a real-world application (optimizing surface coating for PPG Industries). It also includes some non-linear methods (neural networks, random forests, and gradient-boosted trees) as well as Exploratory Data Analysis/Visualization. The Project_Full.html and Project_Full.rmd files contain the latest draft of the project.
+The Machine Learning folder contains structured HWs and a Final Project that involves building Bayesian and non-Bayesian linear and generalized linear models for regression and classification for a real-world application (optimizing surface coating for PPG Industries). It also includes some non-linear methods (neural networks, random forests, and gradient-boosted trees) as well as Exploratory Data Analysis/Visualization. The files are split up into  EDA, Classification, Regression, Interpretation/Optimization. Reports are HTML files.
 
 The Health Data Science folder contains a project I completed in Fall of 2021 using public datasets from ourworldindata.org. It involves data cleaning and exploratory data analysis/visualization in R to examine international relationships between life expectancy and extreme poverty.
 
