@@ -1,0 +1,7 @@
+"0",""
+"0","dat$privins_label <- paste(""Private Insurance Indicator:"", dat$privins)"
+"0",""
+"0","dat %>% ggplot(aes(x = visit, fill = health)) +"
+"0","  geom_bar(width = 0.95) +"
+"0","  facet_wrap(~privins_label) +"
+"0","  theme_minimal()"

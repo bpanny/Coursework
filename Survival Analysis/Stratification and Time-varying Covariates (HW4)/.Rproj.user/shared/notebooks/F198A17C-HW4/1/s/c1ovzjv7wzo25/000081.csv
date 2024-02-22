@@ -1,0 +1,6 @@
+"0",""
+"0","influentials %>% "
+"0","  ggplot(aes(x = karnof, y = karnof90.inf, label = id)) +"
+"0","  geom_point() +"
+"0","  geom_label() +"
+"0","  labs(x = 'karnof', y = 'karnof90 influence')"

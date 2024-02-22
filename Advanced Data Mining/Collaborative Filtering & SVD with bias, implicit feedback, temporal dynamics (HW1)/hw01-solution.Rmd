@@ -1,0 +1,273 @@
+---
+title: "HW1 Report"
+author: "Benjamin Panny"
+date: "`r Sys.Date()`"
+output: 
+  html_document:
+    toc: true
+    toc_float: true
+---
+
+# Results Summary is at the End
+
+## Load Packages and Data
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+library(recommenderlab)
+library(data.table)
+library(tidyverse)
+library(caret)
+library(patchwork)
+```
+
+The train and test split were generated using the Python Tutorial script referenced in the assignments `README.md`
+
+```{r}
+#created by python tutorial
+train <- fread(here::here("train.csv"))
+test <- fread(here::here("test.csv"))
+movie_names <- read_csv("archive/movie_titles.csv", col_names = c("id", "year", "name"))
+```
+
+## Exploratory Data Analysis
+
+
+```{r}
+count_train_users <- train %>% count(user)
+count_train_movies <- train %>% count(movie)
+count_test_users <- test %>% count(user)
+count_test_movies <- test %>% count(movie)
+train %>% dim()
+test %>% dim()
+count_train_users %>% dim()
+count_train_movies %>% dim()
+count_test_users %>% dim()
+count_test_movies %>% dim()
+```
+
+- There are about 80M ratings in the training set and 20M in the test set.
+- There are 405,041 unique users in the training data set
+- There are 349,312 unique users in the testing data set
+- There are 17,424 unique movies in the training data set
+- There are 17,757 unique movies in the testing data set
+
+```{r}
+p1 <- count_train_users %>% ggplot(aes(x = n))+geom_histogram()+labs(x = "# user ratings (train)", y = "# users")
+p2 <- count_train_movies %>% ggplot(aes(x = n))+geom_histogram()+labs(x = "# movie ratings (train)", y = "# movies")
+p3 <- count_test_users %>% ggplot(aes(x = n))+geom_histogram()+labs(x = "# user ratings (test)", y = "# users")
+p4 <- count_test_movies %>% ggplot(aes(x = n))+geom_histogram()+labs(x = "# user ratings (test)", y = "# users")
+(p1 + p2) / (p3 + p4)
+
+p1 <- count_train_users %>% ggplot(aes(x = log(n)))+geom_histogram()+labs(x = "# user ratings (train)", y = "# users")
+p2 <- count_train_movies %>% ggplot(aes(x = log(n)))+geom_histogram()+labs(x = "# movie ratings (train)", y = "# movies")
+p3 <- count_test_users %>% ggplot(aes(x = log(n)))+geom_histogram()+labs(x = "# user ratings (test)", y = "# users")
+p4 <- count_test_movies %>% ggplot(aes(x = log(n)))+geom_histogram()+labs(x = "# user ratings (test)", y = "# users")
+(p1 + p2) / (p3 + p4) + plot_annotation(title = "log (x)")
+```
+
+
+## Sample Train / Test Data
+
+My approach is not clever enough to analyze the whole data set with my laptop's memory
+
+```{r}
+users_with_test_and_train <- intersect(test$user, train$user)
+movies_with_test_and_train <- intersect(test$movie, train$movie)
+subset_users <-  users_with_test_and_train %>% unique() %>% head(40000)
+subset_movies <- movies_with_test_and_train %>% unique() %>% head(1700)
+```
+
+I've subset 40,000 (~10%) users and 1700 (~10%) movies that are found in both the training set and the test set.
+
+## Item-Based Collaborative Filtering
+
+Item-based similarity depends on the k-most similar items and their similarity values.
+
+$$
+r_{ai} = \frac{1}{\sum_{j \in S(i)} s_{ij}} \sum_{j \in S(i)} s_{ij}r_{aj}
+$$
+
+The `recommenderlab` package implements recommendation algorithms such as random items, popular items, user-based CF, item-based CF, SVD, and Funk SVD. 
+
+First I filter the training set to include the subset of users and subset of movies in both the training and test sets that I arbitrarily selected.
+
+```{r}
+filtered_train <- train[train$user %in% subset_users & train$movie %in% subset_movies, ]
+```
+
+```{r}
+filtered_train %>% dim()
+filtered_train %>% count(user)
+filtered_train %>% count(movie)
+```
+
+The filtered training data set has 3.9M ratings over 39,476 users and 1,699 movies.
+
+I then convert this into a `realRatingMatrix` class object for the `Recommender` model generating function.
+
+```{r}
+rating_matrix <- as(filtered_train %>% select(user, movie, rating), "realRatingMatrix")
+
+ibcf <- Recommender(data = rating_matrix, method = "IBCF", parameter = list(k = 30))
+```
+
+The k = 30 parameter indicates we are keeping the 30 most similar items to make our predictions, so I filter my test set down to the same subset of users and movies as my training set and convert it to a `realRatingMatrix`.
+
+```{r}
+filtered_test <- test[test$user %in% subset_users & test$movie %in% subset_movies, ]
+
+test_rating_matrix <- as(filtered_test %>% select(user, movie, rating), "realRatingMatrix")
+
+cols_to_keep <- colnames(test_rating_matrix) %in% rownames(ibcf@model$sim)
+test_rating_matrix <- test_rating_matrix[, cols_to_keep]
+```
+
+```{r}
+test_rating_matrix %>% dim()
+```
+
+The predict method for Recommender objects expects the same number of items in the test set that were in the training set. There was one movie out of 1700 in the sampled test set that was not seen in the sampled training data, and so it is dropped.
+
+```{r}
+pred_ibcf <- predict(object = ibcf, newdata = test_rating_matrix, type = "ratingMatrix")
+```
+
+Converting the true and predicting rating matrices to dense matrices lets us calculate performance measures on them when there is both a predicted and an actual rating to compare.
+
+```{r}
+test_rating_matrix_dense <- as(test_rating_matrix, "matrix")
+pred_ibcf_dense <- as(pred_ibcf, "matrix")
+
+indices <- which(!is.na(test_rating_matrix_dense) & !is.na(pred_ibcf_dense), arr.ind = TRUE)
+
+actual_ratings_ibcf <- test_rating_matrix_dense[indices]
+predicted_ratings_ibcf <- pred_ibcf_dense[indices]
+
+rmse_ibcf <- sqrt(mean((actual_ratings_ibcf - predicted_ratings_ibcf)^2))
+mape_ibcf <- mean(abs((actual_ratings_ibcf - predicted_ratings_ibcf) / actual_ratings_ibcf))
+```
+
+## SVD
+
+Fitting an SVD model is simple with the `Recommender` package. I can re-use the preprocessing steps from IBCF and use the same logic to make predictions and calculate the performance metrics. The default number of latent factors used in SVD in the `Recommender` package is 10 (k = 10)
+
+```{r}
+svd <- Recommender(rating_matrix, method = "SVD") 
+
+pred_test_svd <- predict(object = svd, newdata = test_rating_matrix, type = "ratingMatrix")
+pred_svd_matrix <- as(pred_test_svd, "matrix")
+
+svd_indices <- which(!is.na(test_rating_matrix_dense) & !is.na(pred_svd_matrix), arr.ind = TRUE)
+
+actual_ratings_svd <- test_rating_matrix_dense[svd_indices]
+predicted_ratings_svd <- pred_svd_matrix[svd_indices]
+
+rmse_svd <- sqrt(mean((actual_ratings_svd - predicted_ratings_svd)^2))
+mape_svd <- mean(abs((actual_ratings_svd - predicted_ratings_svd) / actual_ratings_svd))
+```
+
+## XGBoost
+
+XGBoost requires features, so I made some minimal features for each user and movie pairing, which is the average rating of the user, the standard deviation of the user's ratings, the average rating of the movie, and the standard deviation of the movie's ratings. Some other features I could have added are similar item and similar user ratings.
+
+```{r}
+user_summaries <- filtered_train %>% 
+  group_by(user) %>% 
+  summarise(usr_mean = mean(rating, na.rm=T),
+            usr_sd = sd(rating, na.rm=T)) %>%
+  mutate(usr_mean = if_else(is.na(usr_mean), 3, usr_mean),
+            usr_sd = if_else(is.na(usr_sd), 1, usr_sd)) %>% 
+  ungroup()
+
+movie_summaries <- filtered_train %>% 
+  group_by(movie) %>% 
+  summarise(movie_mean = mean(rating, na.rm=T),
+            movie_sd = sd(rating, na.rm=T)) %>%
+  mutate(movie_mean = if_else(is.na(movie_mean), 3, movie_mean),
+         movie_sd = if_else(is.na(movie_sd), 1, movie_sd)) %>% 
+  ungroup()
+
+filtered_train_feat <- filtered_train %>% 
+  left_join(user_summaries) %>% 
+  left_join(movie_summaries)
+```
+
+I fit the model without using any resampling or cross-validation and with arbitrary tuning parameters.
+
+```{r}
+# my_ctrl <- trainControl(method = "repeatedcv", number = 2, repeats = 1)
+my_ctrl <- trainControl(method = "none")
+my_metric <- 'RMSE'
+
+tune_grid <- expand.grid(
+  nrounds = 100,
+  eta = 0.3,
+  max_depth = 6,
+  gamma = 0,
+  colsample_bytree = 1,
+  min_child_weight = 1,
+  subsample = 1
+)
+
+xgb_base <- train(rating ~ usr_mean + usr_sd + movie_mean + movie_sd,
+                  data = filtered_train_feat,
+                  method = 'xgbTree',
+                  trControl = my_ctrl,
+                  metric = my_metric,
+                  tuneGrid = tune_grid,
+                  verbosity = 0)
+```
+
+```{r}
+filtered_test_feat <- filtered_test %>% 
+  left_join(user_summaries) %>% 
+  left_join(movie_summaries) %>% 
+  mutate(usr_mean = if_else(is.na(usr_mean), 3, usr_mean),
+         usr_sd = if_else(is.na(usr_sd), 1, usr_sd),
+         movie_mean = if_else(is.na(movie_mean), 3, movie_mean),
+         movie_sd = if_else(is.na(movie_sd), 1, movie_sd))
+
+
+pred_xgb <- predict(xgb_base, filtered_test_feat)
+
+# Get the actual and predicted ratings for these items
+actual_ratings_xgb <- filtered_test_feat$rating
+predicted_ratings_xgb <- pred_xgb
+
+# Calculate RMSE
+rmse_xgb <- sqrt(mean((actual_ratings_xgb - predicted_ratings_xgb)^2))
+mape_xgb <- mean(abs((actual_ratings_xgb - predicted_ratings_xgb) / actual_ratings_xgb))
+```
+
+## Results Summary
+
+```{r}
+results_wide <- tibble(model = c("ibcf", "svd", "xgb"),
+                  rmse = c(rmse_ibcf, rmse_svd, rmse_xgb),
+                  mape = c(mape_ibcf, mape_svd, mape_xgb))
+
+results_long <- tibble(model = rep(c("ibcf", "svd", "xgb"), each = 2),
+                       metric = rep(c("rmse", "mape"), 3),
+                       value = c(rmse_ibcf, mape_ibcf, rmse_svd, mape_svd, rmse_xgb, mape_xgb))
+```
+
+### Performance Measures Table
+
+```{r}
+results_wide %>% kableExtra::kable() %>% kableExtra::kable_styling()
+```
+
+### Performance Measures Barplot
+
+```{r}
+results_long %>% 
+  ggplot(aes(x = model, y = value))+
+  geom_col()+
+  facet_wrap(~metric)
+```
+
+According to the MAPE and RMSE metrics, the singular value decomposition matrix factorization baseline model appears to be the best performing baseline model on the test set. It's MAPE score is extremely close to the IBCF MAPE score, and even the XGBoost MAPE score is not too far off. However, it is clearly ahead of XGBoost and IBCF when judging the models by RMSE. 
+
+Another vote in favor of the SVD model is that it had the quickest run-time out of IBCF and XGBoost. 
+

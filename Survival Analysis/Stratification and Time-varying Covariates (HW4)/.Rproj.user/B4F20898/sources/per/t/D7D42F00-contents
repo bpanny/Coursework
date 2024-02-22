@@ -1,0 +1,38 @@
+
+setwd("C:\\Users\\yingding\\OneDrive - University of Pittsburgh\\Biost2066\\Codes")
+# read in WHAS500 data
+whas500 <- read.table("whas500.dat", as.is=T)
+names(whas500)<-c("id","age","sex","hr","sysbp","diasbp",
+                  "bmi","cvd","afb","sho","chf","av3","miord",
+                  "mitype","year","admitdate","disdate","fdate",
+                  "los","dstat","lenfol","fstat")
+
+
+library(survival)
+
+fit.pre.main <- coxph(Surv(lenfol/365.25, fstat)~ age + hr + diasbp + bmi
+                      + sex + chf, data=whas500)
+fit.pre.main
+
+# test for linearity via quartile design variable
+# use age as example
+
+# compute quartile and each mid-point
+age.q <- quantile(whas500$age)
+age.q.diff <- age.q[-1] - age.q[-5]
+age.q.mid <- age.q[-5] + 0.5*age.q.diff
+age.q.mid <- c(age.q.mid[1],age.q.mid[-1]+0.5)
+
+# create a new variable for categorizing age groups
+whas500$age.c<-cut(whas500$age,age.q)
+
+# Cox PH model for categorical age
+fit.age.c <- coxph(Surv(lenfol/365.25, fstat)~ age.c + hr + diasbp + bmi
+                   + sex + chf, data=whas500)
+fit.age.c
+
+age.c.beta <- fit.age.c$coeff[1:3]
+
+# Plot to examine the linearity assumption
+plot(x = age.q.mid, y=c(0,age.c.beta), xlab="Age (Years)", ylab="Estimated Log Hazard",pch=19)
+lines(x = age.q.mid, y=c(0,age.c.beta),lty=1)

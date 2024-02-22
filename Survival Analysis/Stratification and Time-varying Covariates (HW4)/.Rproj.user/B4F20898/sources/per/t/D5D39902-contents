@@ -1,0 +1,141 @@
+
+setwd("C:\\Users\\yingding\\OneDrive - University of Pittsburgh\\Biost2066\\Codes")
+# read in WHAS500 data
+whas500 <- read.table("whas500.dat", as.is=T)
+names(whas500)<-c("id","age","sex","hr","sysbp","diasbp",
+                  "bmi","cvd","afb","sho","chf","av3","miord",
+                  "mitype","year","admitdate","disdate","fdate",
+                  "los","dstat","lenfol","fstat")
+
+library(survival)
+
+# Step 1: fit univariable Cox PH models:
+# 8 categorical (binary) variables:
+fit.1 <- coxph(Surv(lenfol/365.25, fstat)~ sex, data=whas500)
+fit.1
+
+fit.2 <- coxph(Surv(lenfol/365.25, fstat)~ cvd, data=whas500)
+fit.2
+
+fit.3 <- coxph(Surv(lenfol/365.25, fstat)~ afb, data=whas500)
+fit.3
+
+fit.4 <- coxph(Surv(lenfol/365.25, fstat)~ sho, data=whas500)
+fit.4
+
+fit.5 <- coxph(Surv(lenfol/365.25, fstat)~ chf, data=whas500)
+fit.5
+
+fit.6 <- coxph(Surv(lenfol/365.25, fstat)~ av3, data=whas500)
+fit.6
+
+fit.7 <- coxph(Surv(lenfol/365.25, fstat)~ miord, data=whas500)
+fit.7
+
+fit.8 <- coxph(Surv(lenfol/365.25, fstat)~ mitype, data=whas500)
+fit.8
+
+# 5 continuous variables:
+fit.9 <- coxph(Surv(lenfol/365.25, fstat)~ age, data=whas500)
+fit.9
+
+fit.10 <- coxph(Surv(lenfol/365.25, fstat)~ hr, data=whas500)
+fit.10
+
+fit.11 <- coxph(Surv(lenfol/365.25, fstat)~ sysbp, data=whas500)
+fit.11
+
+fit.12 <- coxph(Surv(lenfol/365.25, fstat)~ diasbp, data=whas500)
+fit.12
+
+fit.13 <- coxph(Surv(lenfol/365.25, fstat)~ bmi, data=whas500)
+fit.13
+
+# Step 1: fit a multivariable model containing all covariates
+# significant at alpha=0.2 level
+fit.m.1 <- coxph(Surv(lenfol/365.25, fstat)~ age + hr + sysbp + diasbp + bmi
+                 + sex + cvd + afb + chf + miord + mitype, data=whas500)
+fit.m.1
+
+# Step 2-3: remove cvd and sysbp
+fit.m.2 <- coxph(Surv(lenfol/365.25, fstat)~ age + hr + diasbp + bmi
+                 + sex + afb + chf + miord + mitype, data=whas500)
+fit.m.2
+p.m2vsm1 <- pchisq(2*(fit.m.1$loglik[2]-fit.m.2$loglik[2]), df = 2, lower.tail=F)
+p.m2vsm1
+# 0.99
+
+# Step 2-3: remove miord
+fit.m.3 <- coxph(Surv(lenfol/365.25, fstat)~ age + hr + diasbp + bmi
+                 + sex + afb + chf  + mitype, data=whas500)
+fit.m.3
+p.m3vsm2 <- pchisq(2*(fit.m.2$loglik[2]-fit.m.3$loglik[2]), df = 1, lower.tail=F)
+p.m3vsm2
+# 0.76
+
+# Step 2-3: remove afb and mitype
+fit.m.4 <- coxph(Surv(lenfol/365.25, fstat)~ age + hr + diasbp + bmi
+                 + sex + chf, data=whas500)
+fit.m.4
+p.m4vsm3 <- pchisq(2*(fit.m.3$loglik[2]-fit.m.4$loglik[2]), df = 2, lower.tail=F)
+# 0.48
+
+# step 4 skipped (no removed variable has been added back)
+# preliminary main effects model
+fit.pre.main <- coxph(Surv(lenfol/365.25, fstat)~ age + hr + diasbp + bmi
+                      + sex + chf, data=whas500)
+fit.pre.main
+
+# step 5: use {mfp} to find the best form of the continuous variables
+library(mfp)
+
+# for bmi
+fit.bmi.J1 <- mfp(Surv(lenfol/365.25, fstat) ~ age + hr + diasbp 
+               + sex + chf + fp(bmi, df = 2, select = 0.05),
+               family = cox, data = whas500)
+
+print(fit.bmi.J1)
+
+fit.bmi.J2 <- mfp(Surv(lenfol/365.25, fstat) ~ age + hr + diasbp 
+                  + sex + chf + fp(bmi, df = 4, select = 0.05),
+                  family = cox, verbose=T, data = whas500)
+
+print(fit.bmi.J2)
+
+# apply mfp on all 4 continuous varaibles
+fit.cont4.J2 <- mfp(Surv(lenfol/365.25, fstat) ~ fp(age, df = 4, select = 1) 
+                   + fp(hr, df = 4, select = 0.05) + fp(diasbp, df = 4, select = 0.05) 
+                   + fp(bmi, df = 4, select = 0.05) + sex + chf,
+                   family = cox, data = whas500)
+print(fit.cont4.J2)
+
+# Although the best model based on mfp picked one-term transformation for bmi (^(-2))
+# and linear transformation for all the rest 3 continuous variables.
+# We pick the two-term transformations for bmi (due to clinical preference)
+
+# Main effect model:
+bmifp1 <- (whas500$bmi/10)^2
+bmifp2 <- (whas500$bmi/10)^3
+fit.main <-  coxph(Surv(lenfol/365.25, fstat)~ bmifp1 + bmifp2 + age + hr + diasbp 
+                   + sex + chf, data=whas500)
+fit.main
+
+
+# Step 6: add interactions (only show 2 for examples)
+fit.int.1 <- coxph(Surv(lenfol/365.25, fstat)~ bmifp1 + bmifp2 + age + hr + diasbp 
+                   + sex + chf + age * bmifp1 + age * bmifp2 , data=whas500)
+fit.int.1
+p.int1vsmain <- pchisq(2*(fit.int.1$loglik[2]-fit.main$loglik[2]), df=2, lower.tail=F)
+# 0.190
+
+fit.int.2 <- coxph(Surv(lenfol/365.25, fstat)~ bmifp1 + bmifp2 + age + hr + diasbp 
+                   + sex + chf + age * hr, data=whas500)
+fit.int.2
+p.int2vsmain <- pchisq(2*(fit.int.2$loglik[2]-fit.main$loglik[2]), df=1, lower.tail=F)
+# 0.133
+
+
+# preliminary final model
+fit.pre.final <- coxph(Surv(lenfol/365.25, fstat)~ bmifp1 + bmifp2 + age + hr + diasbp 
+                       + sex + chf + age * sex, data=whas500)
+fit.pre.final

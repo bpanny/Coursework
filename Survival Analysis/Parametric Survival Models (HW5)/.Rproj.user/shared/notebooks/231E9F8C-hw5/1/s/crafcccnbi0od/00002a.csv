@@ -1,0 +1,5 @@
+"0",""
+"0","as_tibble(rbind(H0_strat1, H0_strat2, H0_strat3)) %>% "
+"0","  ggplot(aes(x = time, y = hazard, color = strata)) +"
+"0","  geom_step() +"
+"0","  labs(x = ""Time (Days)"", y = ""Cumulative Hazard"")"

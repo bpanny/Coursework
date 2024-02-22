@@ -1,0 +1,269 @@
+---
+title: "hw5"
+author: "Benjamin Panny"
+date: "`r Sys.Date()`"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+
+1.	(20 pts + 10 extra pts) The model building example in Chapter 5 involved finding the best model in the WHAS500 data for lenfol (in years) as survival time and fstat as the censoring variable. The fit and adherence to model assumptions were assessed in Chapter 6. In this problem, we call this final model the "WHAS500 model." (Lecture 12, Slide 26, “preliminary final model’).
+
+```{r}
+library(tidyverse)
+library(survival)
+whas <- read_delim("whas500.txt", delim = " ")
+```
+
+
+1a.	(10 pts) Treating cohort year (variable: year) as a stratification variable, refit the WHAS500 model. Compare the estimated coefficients from this stratified model with those from the fit of the WHAS500 model. Are there any important differences (i.e., changes greater than 15 percent)? 
+
+```{r}
+whas %>% glimpse
+
+lecture_mod <- coxph(Surv(lenfol,fstat)~I((bmi/10)^2) + I((bmi/10)^3) + age*sex + hr + diasbp + chf, data=whas)
+
+strat_mod <- coxph(Surv(lenfol,fstat)~I((bmi/10)^2) + I((bmi/10)^3) + age*sex + hr + diasbp + chf + strata(year), data=whas)
+```
+
+bmifp1 and bmifp2 in the lecture model are annotated as bmi^2 and bmi^3, respectively, but in the lecture code it is the same with each divided by 10, so I will use the lecture code transformation.
+
+```{r}
+whas_coefs <- lecture_mod$coefficients %>% 
+  rbind(strat_mod$coefficients)
+
+(whas_coef_diffs <- (whas_coefs[1,] - whas_coefs[2,]) / whas_coefs[1,] * 100)
+```
+
+There are no changes in coefficients greater than 15% when stratifying by year. However, chf and age:sex intergtsgic come *very* close, within ~0.5% and ~3.7%, respectively.
+
+1b.	(10 pts) Under the “WHAS500 model”, obtain and plot the estimated survival curve for the indivual with the following covariates:
+
+bmi = 28, 
+age = 50,
+hr = 80,
+diasbp = 100,
+chf = 1,
+     sex = 0 (male).
+
+```{r}
+#H0: cumulative baseline hazards for both strata 
+ind_covs <- data.frame(bmi = 28, age = 50, sex = 0, hr = 80, diasbp = 100, chf = 1)
+H0 <- basehaz(lecture_mod,newdata = ind_covs)
+S0 <- exp(-H0$hazard)
+
+tibble(s0 = S0, time = H0$time) %>% 
+  ggplot(aes(x = time, y = s0)) +
+  geom_step() +
+  labs(x = "Time (Days)", y = "Estimated Survival Probability")
+
+as_tibble(H0) %>% 
+  ggplot(aes(x = time, y = hazard)) +
+  geom_step() +
+  labs(x = "Time (Days)", y = "Cumulative Hazard")
+```
+
+
+The sudden drop (survival) and rise (hazard) in the plots is surprising.
+
+1c.	(10 extra pts) Under the stratified model you fit in (a), obtain and plot the estimated survival curves for the following three individuals who have the same following covariate values (same as in (b)) but entered the study in three different cohort years (value of year=1, 2, 3, respectively): 
+
+bmi = 28, 
+age = 50,
+hr = 80,
+diasbp = 100,
+chf = 1,
+sex = 0 (male).
+
+```{r}
+#H0_strat: cumulative baseline hazards for both strata 
+H0_strat <- basehaz(strat_mod,newdata=ind_covs)
+S0_strat <- exp(-H0_strat$hazard)
+
+# cumulative baseline hazard for stratum year=1
+H0_strat1 <- H0_strat[H0_strat$strata=="year=1",]
+S0_strat1 <- exp(-H0_strat1$hazard)
+
+# cumulative baseline hazard for stratum year=2
+H0_strat2 <- H0_strat[H0_strat$strata=="year=2",]
+S0_strat2 <- exp(-H0_strat2$hazard)
+
+# cumulative baseline hazard for stratum year=3
+H0_strat3 <- H0_strat[H0_strat$strata=="year=3",]
+S0_strat3 <- exp(-H0_strat3$hazard)
+
+tibble(s0 = c(S0_strat1, S0_strat2, S0_strat3), time = c(H0_strat1$time, H0_strat2$time, H0_strat3$time), strat = rep(c(1,2,3), c(length(S0_strat1), length(S0_strat2), length(S0_strat3)))) %>% 
+  ggplot(aes(x = time, y = s0, color = factor(strat))) +
+  geom_step() +
+  labs(x = "Time (Days)", y = "Estimated Survival Probability", color = "Stratum (Enrollment Year)")
+
+as_tibble(rbind(H0_strat1, H0_strat2, H0_strat3)) %>% 
+  ggplot(aes(x = time, y = hazard, color = strata)) +
+  geom_step() +
+  labs(x = "Time (Days)", y = "Cumulative Hazard")
+```
+
+Each strata demonstrates a pattern of sharp decreases in survival and increases in hazard as the study approaches its end date.
+
+2.	(40 pts) In the dataset “GTSG_LONG.txt”, data from a clinical trial of chemotherapy and chemotherapy combined with radiotherapy in treating locally unresectable gastric cancer is given. Of interest in this study is a comparison of the efﬁcacy of the two treatments on overall survival. 
+
+t: time to death
+trt: treatment, 1= chemotherapy, 2= chemotherapy combined with radiotherapy
+c: indicator of event, 1=event, 0=censoring
+
+```{r}
+library(tidyverse)
+library(survival)
+gtsg <- read_csv('GTSG_LONG.csv')
+gtsg
+```
+
+
+2a.	(10 pts) Using an appropriate proportional hazards model, test the hypothesis of difference in survival between the two treatment regimes. Find a 95% conﬁdence interval for the hazard ratio of death for patients treated only with chemotherapy compared to patients treated with chemotherapy plus radiation. 
+
+```{r}
+gtsg %>% GGally::ggpairs()
+```
+
+
+```{r}
+gtsg_mod <- coxph(Surv(t,c)~trt, data=gtsg)
+
+summary(gtsg_mod)
+confint(gtsg_mod)
+```
+
+The 95% CI for the hazard ratio between death for patients treated only with chemotherapy and death for patients treated with chemotherapy plus radiation is (0.7182, 1.724). That is, if our model assumptions are correct, then reproducing our procedures will capture the true hazard ratio 95% of the time in our confidence interval. This time, our confidence interval contains 1.0, which means our resulting hazard ratio is not statistically significant under the null hypothesis that it is equal to 1.
+
+2b.	(10 pts) Test whether the proportional hazards assumption holds for the “trt” variable.
+
+The proportional hazards assumption is, in some sense, that the effect of a covariate on a change in hazard rate for any given individual is stable over time, that is, that the covariate effect is time-independent.
+
+```{r}
+schoenfeld_resid <- cox.zph(gtsg_mod)
+par(las=F)
+par(mfrow=(c(1,3)))
+print(schoenfeld_resid)
+
+ss_resid_identity<-cox.zph(gtsg_mod, transform="identity")  
+ss_resid_identity
+
+# use the log tranformation (g(t)=log(t))
+ss_resid_log<-cox.zph(gtsg_mod, transform=function(x){log(x)})  
+ss_resid_log
+
+
+plot(schoenfeld_resid)
+plot(ss_resid_identity)
+plot(ss_resid_log)
+```
+
+The scaled Schoenfeld residuals show a time-dependent pattern under `km`, `identity`, and `log` transformations of the survival times. Therefore, the proportional hazards assumption is violated.
+
+Model fit can also be assessed with Cox-Snell residuals.
+
+```{r}
+coxsnell.r <- gtsg$c-resid(gtsg_mod,type="martingale")
+
+fitres <- survfit(Surv(coxsnell.r, gtsg$c)~1)
+
+plot(fitres$time,-log(fitres$surv),type='s',xlab='Cox-Snell Residuals', 
+     ylab='Estimated Cumulative Hazard Function')
+abline(0,1,col='red',lty=2)
+```
+
+The model appears well fit according to the Cox-Snell Residuals because the residuals appear to match up with a unit exponential cumulative hazard function, which is what we expect to see if the Cox model is valid and the coefficients and estimated baseline hazard cumulative hazard function are close to their true values. However, as we have seen from the Scaled Schoenfeld Residuals, the Cox model is not valid!
+
+2c.	(20 pts) Because the hazard rates for the two treatment groups are not proportional (the proportional hazards assumption does not hold for “trt”), consider a model with two time-dependent covariates: 
+
+$$
+Z_{1}(t) = \begin{cases}
+1 & \text{if chemotherapy only and } t \leq \tau \\
+0 & \text{otherwise}\\
+\end{cases}
+$$
+
+$$
+Z_{2}(t) = \begin{cases}
+1 & \text{if chemotherapy only and } t \gt \tau \\
+0 & \text{otherwise} \\
+\end{cases} \\
+$$
+
+$$
+\text{where } \tau = 254
+$$
+
+Fit the Cox PH model with these two new treatment covariates (note that you do not need the original “trt” variable in this model). Report and explain the two hazard ratios obtained from this model. Compare the result obtained from this model with the result obtained in part (a). Explain how a physician should present this model to a patient.
+
+```{r}
+gtsg_td <- gtsg %>% 
+  mutate(z1 = if_else(t <= 254 & trt == 1, 1, 0),
+         z2 = if_else(t > 254 & trt == 1, 1, 0))
+gtsg_mod_td <- coxph(Surv(t,c)~z1 + z2, data=gtsg_td)
+
+summary(gtsg_mod)
+summary(gtsg_mod_td)
+```
+
+This model differs from the model obtained in part a. It indicates that there is a significance difference in hazard rate for individuals receiving chemotherapy prior to timepoint 254 compared to those receiving chemotherapy+radiation at any time point and those receiving chemotherapy who are beyond timepoint 254. The estimated hazard ratio for this difference is 5.824 (2.39, 14.177), indicating a hazard rate that is 5.824 times higher for the former compared to the latter. The hazard rate is the probability of death at the next instant of time given survival up to the current timepoint.
+
+Additionally, this model including time-dependent covariates indicates there is no statistically significant difference in hazard rate for "individuals receiving only chemotherapy after timepoint 254" and "individuals receiving chemotherapy+radiation at anytime and individuals receiving chemotherapy prior to timepoint 254". 
+
+My conclusion is that the physician should explain this model to the patient by indicating the chemotherapy+radiation is associated with lower hazard during the first 254 timepoints compared to chemotherapy, and afterwards there is no strong evidence that they are different. Thus, the physician might consider chemotherapy + radiation prior to 254 timepoints and then consider chemotherapy alone if it relieves burden on the patient.
+
+3	(40 pts + 10 extra pts) Fit an exponential regression model containing Treatment (tx) and cd4 count (cd4) using the ACTG320 data (same dataset in HW4). 
+
+```{r}
+act <- read_csv('actg320.csv')
+names(act) <- tolower(names(act))
+fit.exp.1 <- survreg(Surv(time/365.25,censor) ~ tx + cd4, dist="exp", data=act)
+summary(fit.exp.1)
+```
+
+3a.	(15 pts) Using the fitted model, compute point and 95 percent confidence interval estimates of the time ratio for treatment and the time ratio for an increase of 50 in cd4 Interpret these estimates within the context of the study. 
+
+```{r}
+confint(fit.exp.1)
+apply(confint(fit.exp.1), FUN=exp, MARGIN=2)
+lapply(coef(fit.exp.1), FUN=exp)
+print('for delta(cd4) = 50...')
+exp(confint(fit.exp.1)['cd4',] * 50)
+exp(coef(fit.exp.1)['cd4'] * 50)
+```
+
+The estimated time ratio for treatment is 1.95 (1.27, 2.97). This means the median time to event among individuals receiving treatment is 1.95 times higher than the median time to event among individuals not receiving treatment.
+
+The estimated time ratio for an increase of 50 in cd4 is 2.23 (1.75, 2.86). This means the median time to event among individuals for each 50-unit increase in cd4 is 2.23 times higher than the median time to event at the previous cd4 level. Of course, it is unwise to extrapolate this and say, if you had infinite cd4, you would live forever.
+
+3b.	(15 pts) Using the fitted model, compute point estimates of the hazard ratio for treatment and the hazard ratio for an increase of 50 in cd4. Interpret these estimates within the context of the study. 
+AND
+3c.	 (10 extra pts) Compute 95 percent confidence interval estimates of the hazard ratio for treatment and the hazard ratio for an increase of 50 in cd4 (i.e., two CIs).
+
+
+"Because the exponential regression model has proportional hazards, we can also express the effect of covariates using hazard ratios." This is accomplished by changing the sign of the coefficients. This also means that the hazard ratio is the inverse time ratio and vice-versa
+
+```{r}
+-confint(fit.exp.1)
+apply(-confint(fit.exp.1), FUN=exp, MARGIN=2)
+-coef(fit.exp.1)
+lapply(-coef(fit.exp.1), FUN=exp)
+print('for delta(cd4) = 50...')
+exp(-confint(fit.exp.1)['cd4',] * 50)
+exp(-coef(fit.exp.1)['cd4'] * 50)
+```
+
+The hazard ratio for treatment is 0.51 (0.326, 0.6). This indicates a ~49% lower hazard rate for those receiving treatment compared to those not receiving treatment
+
+The hazard ratio for a 50 unit increase in cd4 is 0.447 (0.35, 0.57). This indicates a ~55% lower hazard rate for each 50 unit increase in cd4 compared to the previous cd4 level. 
+
+
+3d.	(10 pts) Compare the time ratio and hazard ratio estimates computed in problems 3(a) and 3(b). In particular, which estimate time or hazard ratio would be more easily understood by non-statistically trained clinicians? 
+
+I think median survival time is far more interpretable than the hazard ratio. Indeed, the numerator and denominator of the hazard ratio are hazard rates, which are conditional instantaneous event times, with limits and infinitesimals and conditioning in the very definition. Comparatively, everyone has an intuition for what it means to say that typical length of survival is longer in one group compared to another group.
+
+
+

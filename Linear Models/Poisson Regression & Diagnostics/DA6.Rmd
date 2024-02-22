@@ -1,0 +1,133 @@
+---
+title: "Applied Regression Data Analysis #1"
+author: "Benjamin Panny"
+date: "Due January 25th, 2023"
+# bibliography: references.bib 
+output:
+  html_document:
+     toc: true
+     toc_float: true
+  pdf_document: default
+  word_document: default
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+# Load Libraries and Data
+
+```{r load, message=F, warning=F}
+library(tidyverse)
+library(sandwich)
+library(lmtest)
+library(patchwork)
+source("alr_utility.R")
+dat <- read_csv("arsenic.csv") %>% mutate(
+  exp = factor(exp, levels=0:1, labels=c("Low", "High")),
+  age = factor(age, levels=1:4, labels=c("40-49","50-59", "60-69", "70-79")),
+  calper = factor(calper, levels=1:4, labels=c("1938-49", "1950-59", "1960-69", "1970-79"))
+)
+```
+
+# Background
+
+Arsenic Data
+
+Cohort study of men first employed prior to 1925 in a Montana smelter who were heavily exposed to arsenic.  
+
+Low exposure: less than 1 year of heavy or moderate arsenic exposure.  
+High exposure: 15+ years of heavy or moderate arsenic exposure.
+Age groups: 40-49, 50-59, 60-69, 70-79
+Time period: 1938-49, 1950-59, 1960-69, 1970-77
+
+Do rates of respiratory cancer mortality differ by levels of arsenic exposure?
+
+# Fit Poisson Model
+
+1.	Fit Poisson model with only exposure. Show result using robust standard errors for the parameter estimates. Is exposure significantly contribute to estimate of number of deaths?  Note that you need to adjust total observed time (n). 
+
+```{r poi model}
+glm_1 <- glm(y ~ exp, family = poisson(link = 'log'), data = dat, offset = log(n))
+
+coeftest(glm_1, vcov = sandwich::sandwich)
+exp(glm_1$coefficients[2])
+```
+
+The coefficient estimate for `exp` is statistically significantly different from zero (`p < 0.001`) using robust standard errors for the parameter estimates. The estimate indicates a positive contribution to death rate by high arsenic exposure relative to low arsenic exposure. The expected death rate for those with high arsenic exposure is estimated to be $\exp^{(\beta_{exposure})} = 3.275$ times as high as the rate of death for those with low arsenic exposure.
+
+
+# Fit Full Poisson Model
+
+2.	Fit a full model including exposure, age group and calendar periods. Conduct likelihood ratio test for adding age group and calendar periods when exposure already in the model.  Also compare Pseudo R2. Explain which model do you prefer?
+
+```{r poi model full}
+glm_2 <- glm(y ~ . - n, family = poisson(link = 'log'), data = dat, offset = log(n))
+
+coeftest(glm_2, vcov = sandwich::sandwich)
+anova(glm_2, test = "LRT")
+
+glm_3 <- glm(y ~ exp + calper + age, family = poisson(link = 'log'), data = dat, offset = log(n))
+anova(glm_3, test = 'LRT')
+```
+
+According to the robust standard error procedures for the coeffficient estimates. Features of arsenic exposure, age group, and calendar period appear to make significant contributions to the expected death rate. However, according to the LRT, only age appears to contribute significantly to the model predictions after taking into account exposure. After age and exposure are added, calendar period does not seem to significantly contribute to the model. This is not true if the sequence age and calendar period adding are switched. 
+
+```{r poi pseudo r squareds}
+DescTools::PseudoR2(glm_1, which="McFadden")
+DescTools::PseudoR2(glm_2, which="McFadden")
+```
+
+The pseudo-R squared is higher for glm_2, the full model. I prefer the full model because it has a twice as large pseudo-R squared. Also, age and calendar period appear to both be significant predictors, even though calendar period may not contribute much to the expected death rate prediction after exposure and age. 
+
+# Estimated rate ratio with confidence interval
+
+3.	Using full model in 2, find estimated rate ratio and its 95% confidence interval for exposed workers 50-59 years old in 1960-69 compared to unexposed workers 60-69 years old in 1970-77. Interpret the result.
+
+```{r err w ci}
+glht_2 <- multcomp::glht(glm_2, linfct = rbind("50-59yo exposed 1960-69 vs 60-69yo exposed 1970-77" = c(0, 1, 1, -1, 0, 0, 1, -1)))
+(glht_2_summary <- summary(glht_2))
+glht_2_summary
+```
+
+```{r exp coef and ci}
+exp(confint(glht_2_summary)$confint)
+```
+The expected rate ratio for `50-59yo exposed 1960-69 vs 60-69yo exposed 1970-77` is 1.376. This means the expected death rate is 1.376 times higher in 50-59yo exposed 1960-69 vs 60-69yo exposed 1970-77. However, there is no statistically significant reason to believe this estimate stems from a difference in expected death rates between the two groups.
+
+# Goodness of Fit Test for Full Model
+
+Conduct goodness of fit test. Does this model fit the data well?
+
+```{r gof}
+cat("deviance =", glm_2$deviance, ", df = ", glm_2$df.residual, "\n",
+    "Prob ( > ", glm_2$deviance, ") = ", pchisq(glm_2$deviance, glm_2$df.residual, lower.tail=F))
+pearson <- sum(resid(glm_2, type="pear")^2)
+cat("chisquare =", pearson, ", df = ", glm_2$df.residual, "\n",
+    "Prob ( > ", pearson, ") = ", pchisq(pearson, glm_2$df.residual, lower.tail=F))
+```
+
+We have no statistically significant evidence that the model does not fit the data well.
+
+# Is Normal Approximation Reasonable for this Model Fit?
+
+Check to see if normal approximation is reasonable for this model fit?
+
+```{r normal approx}
+alr_plot_residual_dist(glm_2) + alr_plot_residual_QQ(glm_2)
+```
+
+The Pearson residuals appear to be approximately normally distributed with mean 0 and variance 1.
+
+# Outliers, High Leverage, High Influence
+
+Identify outliers, high leverage and/or high influential (using cook’s distance).
+
+```{r out, lev, inf}
+alr_plot_residual(glm_2, x = "predicted", bubble = T)
+
+alr_plot_leverage(glm_2, x = "predicted") + alr_plot_cookd(glm_2, x = "predicted")
+```
+
+There appear to be 4 high influence points based on Cook's Distance. There don't appear to be any points with above-threshold leverage, nor does their appear to be any residual outliers based on Cook's D.
+

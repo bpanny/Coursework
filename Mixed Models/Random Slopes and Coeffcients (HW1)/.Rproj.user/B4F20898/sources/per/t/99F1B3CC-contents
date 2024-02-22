@@ -1,0 +1,143 @@
+---
+title: "BIOST 2050 Lecture 2 Fall 2021"
+author: "Ruopu Song"
+date: "9/1/2021"
+output:
+  html_document:
+    toc: true
+    toc_float: true
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+# Library
+
+```{r, message=FALSE, warning=FALSE}
+library(foreign)
+library(lme4)
+library(dplyr)
+library(ggplot2)
+```
+
+# Descriptives
+
+```{r}
+# read in stata dataset
+gcse <- read.dta("gcse.dta")
+head(gcse)
+str(gcse)
+# descriptive of the data
+by(gcse$student, gcse$school, function(x) c(N = length(x), mean = mean(x)))
+# find distribution of number of students at each school
+gcse$rec = 1
+gcse %>% 
+  group_by(school) %>% 
+  mutate("run" = cumsum(rec)) %>% 
+  select(school, student, run) %>% 
+  filter(school == 34 | school == 37)
+```
+
+# Simple Linear Regression (OLS)
+
+> Stata:  
+*. regress gcse lrt if school==1*
+
+```{r}
+# Fit a OLS regression line for school 1
+fit1 = lm(gcse ~ lrt, data = subset(gcse, school == 1))
+summary(fit1)
+```
+
+> Stata:  
+*. predict p_gcse, xb*  
+*. twoway (scatter gcse lrt) (line p_gcse lrt, sort) if school==1, xtitle(LRT) ytitle(GCSE)*  
+
+```{r}
+# twoway scatter plot
+ggplot(subset(gcse, school == 1), aes(x = lrt, y = gcse)) +
+    geom_point() + 
+    geom_smooth(method = "lm")
+```
+
+# Seperate LR for Each School
+
+> Stata:  
+
+```{r}
+# number of school we have
+n_school = max(gcse$school)
+# Create a matrix to store coefficients
+coef_mat = matrix(ncol = 2, nrow = n_school)
+for (i in 1:n_school) {
+      # Create a temporary data set only containing obs for school = i
+      tmp = gcse %>%
+        filter(school == i)
+      fit = lm(gcse ~ lrt, data = tmp)
+      # Store coefficients of fit inside i-th row
+      coef_mat[i,] = coef(fit)
+}
+# Alternatively, we can use 
+head(coef_mat)
+```
+
+# Random Intercept Model (MLE)
+
+> Stata:  
+*. mixed gcse lrt || school:, mle nolog*  
+
+```{r}
+fit2 <- lmer(gcse ~ lrt + (1 | school), data = gcse, REML = F)
+summary(fit2)
+```
+
+# Random Coefficient Model
+
+> Stata:  
+*. mixed gcse lrt || school:lrt, cov(unstructured) mle nolog*  
+
+```{r}
+fit3 <- lmer(gcse ~ lrt + (lrt | school), data = gcse, REML = F)
+summary(fit3)
+```
+
+> Stata:  
+*. mixed gcse lrt || school:lrt, cov(unstructured) mle*  
+
+```{r}
+# with unstructured var-cov between the random intercept and random slope
+fit4 <- lmer(gcse ~ lrt + (lrt || school), data = gcse, REML = F)
+summary(fit4)
+```
+
+> Stata:
+*. mixed gcse lrt || school:lrt, cov(unstructured) mle*  
+*. est store uns*  
+*. quietly mixed gcse lrt || school:lrt, mle*  
+*. est store ind*  
+*. lrtest uns ind*  
+
+```{r}
+# perform a LRT test for two models with different cov structures
+anova(fit3, fit4)
+```
+
+> Stata:  
+*. lrtest rc ri*  
+
+```{r}
+# perform a LRT test for RI model and RC model
+anova(fit2, fit3)
+```
+
+# Empirical Bayes
+
+> Stata:
+*. estimates restore rc*  
+*. predict ebs ebi, reffects*  
+
+```{r}
+eb_gcse <- ranef(fit3)
+eb_gcse$school %>% head(6)
+```

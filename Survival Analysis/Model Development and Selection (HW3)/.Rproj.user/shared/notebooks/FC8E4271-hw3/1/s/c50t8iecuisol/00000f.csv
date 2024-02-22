@@ -1,0 +1,3 @@
+"0","whas_for_st <- whas %>% mutate(bmi_25 = bmi - 25)"
+"0","cox.fit.5<-coxph(Surv(lenfol,fstat)~sex*bmi_25, data=whas_for_st)"
+"0","coefs_5 <- coef(cox.fit.5)"

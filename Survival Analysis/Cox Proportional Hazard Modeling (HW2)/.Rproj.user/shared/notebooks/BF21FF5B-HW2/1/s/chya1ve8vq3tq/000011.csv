@@ -1,0 +1,4 @@
+"0","gbcs_summary <- gbcs  %>% "
+"0","  summarize(size_median = median(size),"
+"0","         nodes_median = median(nodes),"
+"0","         prog_recp_median = median(prog_recp))"

@@ -1,0 +1,3 @@
+"0","# Create the table1"
+"0","tbl1 <- table1(~ ., data = dat)"
+"0","tbl1"

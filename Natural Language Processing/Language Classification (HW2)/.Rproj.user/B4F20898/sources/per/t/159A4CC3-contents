@@ -1,0 +1,176 @@
+################################################################################
+#
+# multilevel logistic regression analyses of data from the two-step task 
+# (Daw et al., 2011; Gillan et al., 2016)
+#
+# written by Vanessa Brown, 2021
+# 
+# assumes data have already been preprocessed and saved in combined file
+################################################################################
+
+library(tidyverse)
+
+# load data - need to specify filename
+preprocessed_filepath=paste0("./data/combined_twostep_data_2023-01-02.csv")
+all_data=read_csv(preprocessed_filepath)
+
+
+# 0 = saline and active ct
+# 1 = ketamine and sham ct
+# 2 = ketamine and active ct
+
+intervention_filepath <- paste0("./data/intervention_groups.csv")
+intervention_data <- read_csv(intervention_filepath) %>% 
+  rename(ID = id, intervention = Group3Way) %>%
+  drop_na() %>% 
+  select(-tmtdate) %>% 
+  mutate(ID = substr(ID, 2, 4) %>% as.numeric(),
+         ketamine = ifelse(intervention == 0, 0, 1))
+  
+
+timepoints_filepath <- paste0("./data/survey_timepoints.csv")
+timepoints_data <- read_csv(timepoints_filepath) %>%
+  select(-redcap_repeat_instrument, -redcap_repeat_instance, -survey_madrs_discrepancy)
+
+# create time variable (days), remove screening visit, binarize step_two_reward,
+# join with timepoints_data and intervention_data
+all_data <- all_data %>% 
+  filter(!visit_num %in% c(1)) %>%
+  mutate(redcap_event_name = case_when(visit_num == 2 ~ "baseline",
+                                visit_num == 3 ~ "24hr_arm_1", 
+                                visit_num == 4 ~ "day_5_arm_1", 
+                                visit_num == 5 ~ "day_12_arm_1", 
+                                visit_num == 6 ~ "day_30_arm_1"),
+         ID = as.double(ID))
+
+all_data$step_two_reward <- ifelse(all_data$step_two_reward == 0, -1, 
+                                   all_data$step_two_reward)
+
+all_data <- intervention_data %>% 
+  right_join(all_data, by = 'ID') %>% 
+  filter(!is.na(intervention)) %>% 
+  left_join(timepoints_data, by = c('record_id', 'redcap_event_name')) %>%
+  mutate(days_after_infusion = replace_na(days_after_infusion, 0),
+         prepost = ifelse(visit_num == 2, 0, intervention + 1))
+
+all_data$intervention <- as.factor(all_data$intervention)
+all_data$ketamine <- as.factor(all_data$ketamine)
+# create separate data frames for "Infusion Phase" and "CT Phase"
+inf_data <- all_data %>% filter(visit_num %in% c(2,3))
+ct_data <- all_data %>% filter(visit_num %in% c(3,4,5,6))
+baseline_data <- all_data %>% filter(visit_num == 2)
+
+# frequentist analyses using lme4 package (more common) ####
+library(lme4)
+
+# "Baseline" model: explain behavior at baseline
+bl_behav <- glmer(next_trial_stay ~ step_two_reward * trans_type + 
+                     (1+step_two_reward * trans_type | ID),
+                   data = baseline_data,
+                   family = 'binomial',
+                   glmerControl(optimizer = "bobyqa", 
+                                optCtrl = list(maxfun = 100000)))
+
+
+# "Infusion Phase" model: explain behavior from baseline and 24hr visits
+
+inf_behav <- glmer(next_trial_stay ~ ketamine * days_after_infusion * step_two_reward * trans_type + 
+                     (1+step_two_reward * trans_type | ID),
+                   data = inf_data,
+                   family = 'binomial',
+                   glmerControl(optimizer = "bobyqa", 
+                                optCtrl = list(maxfun = 100000)))
+inf_behav %>% write_rds("inf_behav")
+summary(inf_behav)
+
+# "CT Phase" model: explain behavior from 24hr visit to day 30 visit
+
+ct_behav_scale_days <- glmer(next_trial_stay~intervention * scale(days_after_infusion,center=FALSE)*step_two_reward * trans_type + 
+                    (1+step_two_reward * trans_type | ID ),
+                  data = ct_data,
+                  family = 'binomial',
+                  glmerControl(optimizer = "bobyqa", 
+                               optCtrl = list(maxfun = 100000)))
+summary(ct_behav_scale_days)
+ct_behav_scale_days %>% write_rds("ct_behav_scale_days.rds")
+
+# "Full Phase" model
+
+all_behav <- glmer(next_trial_stay ~ prepost * step_two_reward * trans_type + 
+                     (1+prepost * step_two_reward * trans_type | ID / days_after_infusion),
+                   data = all_data,
+                   family = 'binomial',
+                   glmerControl(optimizer = "bobyqa", 
+                                optCtrl = list(maxfun = 100000)))
+summary(all_behav)
+
+bl_behav %>% readr::write_rds("bl_behav.rds")
+inf_behav %>% readr::write_rds("inf_behav.rds")
+ct_behav %>% readr::write_rds("ct_behav.rds")
+all_behav %>% readr::write_rds("all_behav.rds")
+
+# Bayesian analyses using brms ####
+library(brms)
+# note: this approach is less common but can solve issues with
+# convergence, singular fit, etc. that often occur with the frequentist 
+# analyses above. For an example of this approach see 
+# Patzelt et al., 2018 https://doi.org/10.1016/j.biopsych.2018.06.018
+options(mc.cores = parallel::detectCores())
+
+bl_behav_brms <- brm(next_trial_stay ~ step_two_reward * trans_type + 
+                     (1+step_two_reward * trans_type | ID),
+                   data = baseline_data,
+                   family = 'bernoulli',iter=3000,warmup=500,chains=3,cores=getOption("mc.cores",1))
+
+summary(bl_behav_brms$fit,pars=c('b_Intercept','b_step_two_reward','b_trans_type',
+  'b_step_two_reward:trans_type'))$summary
+
+
+# "Infusion Phase" model: explain behavior from baseline and 24hr visits
+
+inf_behav_brms <- brm(next_trial_stay ~ ketamine * step_two_reward * trans_type + 
+                     (1+step_two_reward * trans_type * ketamine | ID / days_after_infusion),
+                     data = inf_data,
+                     family = 'bernoulli',iter=3000,warmup=500,chains=3,cores=getOption("mc.cores",1))
+
+summary(inf_behav_brms$fit,pars=c('b_Intercept','b_step_two_reward','b_trans_type',
+                                 'b_step_two_reward:trans_type'))$summary
+
+# "CT Phase" model: explain behavior from 24hr visit to day 30 visit
+
+ct_behav_brms <- brm(next_trial_stay~intervention * step_two_reward * trans_type + 
+                    (1+intervention * step_two_reward * trans_type | ID / days_after_infusion),
+                    data = ct_data,
+                    family = 'bernoulli',iter=3000,warmup=500,chains=3,cores=getOption("mc.cores",1))
+
+summary(ct_behav_brms)
+
+V2_behav_brms=brm(next_trial_stay~step_two_reward*trans_type+
+  (1+step_two_reward*trans_type|ID),data=V2_data,
+  family='bernoulli',iter=3000,warmup=500,chains=3,cores=3)
+summary(V2_behav_brms$fit,pars=c('b_Intercept','b_step_two_reward','b_trans_type',
+  'b_step_two_reward:trans_type'))$summary
+
+all_behav_brms=brm(next_trial_stay~step_two_reward*trans_type+
+  (1+step_two_reward*trans_type|ID/visit_num),data=all_data,
+  family='bernoulli',iter=3000,warmup=500,chains=3,cores=3)
+summary(all_behav_brms$fit,pars=c('b_Intercept','b_step_two_reward','b_trans_type',
+  'b_step_two_reward:trans_type'))$summary
+
+##plots
+madrsnames <- c("Intercept", "Symptom Percent Change", "Days after Infusion", "Rewarded Trial", "Common Transition", "Symptom Percent Change x Days after Infusion", "Symptom Percent Change x Rewarded Trial","Days after Infusion x Rewarded Trial", "Symptom Percent Change x Common Transition", "Days after Infusion x Common Transition", "Rewarded Trial x Common Transition", "Symptom Percent Change x Days after Infusion x Rewarded Trial", "Symptom Percent Change x Days after Infusion x Common Transition", "Symptom Percent Change x Rewarded Trial x Common Transition", "Days after Infusion x Rewarded Trial x Common Transition", "Symptom Percent Change x Days after Infusion x Rewarded Trial x Common Transition")
+ctnames <- c("Saline and Active Training Reference Group", "Ketamine + Sham Training", "Ketamine + Active Training", "Days After Infusion", "Rewarded Trial", "Common Transition", "Ketamine + Sham x Days after Infusion", "Ketamine + Active x Days After Infusion","Ketamine + Sham x Rewarded Trial", "Ketamine + Active x Rewarded Trial", "Days after Infusion x Rewarded Trial","Ketamine + Sham x Common Transition", "Ketamine + Active x Common Transition",
+             "Days after Infusion x Common Transition",
+             "Rewarded Trial x Common Transition", "Ketamine + Sham x Days after Infusion x Rewarded Trial","Ketamine + Active x Days after Infusion x Rewarded Trial", "Ketamine + Sham x Days after Infusion x Common Transition","Ketamine + Active x Days after Infusion x Common Transition","Ketamine + Sham x Rewarded Trial x Common Transition","Ketamine + Active x Rewarded Trial x Common Transition", "Days after Infusion x Rewarded Trial x Common Transition", "Ketamine + Sham x Days after Infusion x Rewarded Trial x Common Transition","Ketamine + Active x Days after Infusion x Rewarded Trial x Common Transition")
+infnames <- c("Placebo Reference Group", "Ketamine Group", "Pre-Post Infusion",
+              "Rewarded Trial", "Common Transition", "Ketamine Group x Pre-Post Infusion",
+              "Ketamine Group x Rewarded Trial", "Pre-Post Infusion x Rewarded Trial",
+              "Ketamine Group x Common Transition", "Pre-Post Infusion x Common Transition",
+              "Rewarded Trial x Common Transition", "Ketamine Group x Pre-Post Infusion x Rewarded Trial", "Ketamine Group x Pre-Post Infusion x Common Transition", "Ketamine Group x Rewarded Trial x Common Transition", "Pre-Post Infusion x Rewarded Trial x Common Transition", "Ketamine Group x Pre-Post Infusion x Rewarded Trial x Common Transition")
+coefplot::coefplot.glm(madrs, intercept = FALSE) + 
+  scale_y_discrete(labels=madrsnames[2:length(madrsnames)]) + 
+  labs(y = "Fixed Effects", title = "Fixed Effects of Depression Symptoms on Decision-Making Over Time") + theme_bw()
+coefplot::coefplot.glm(inf, intercept=FALSE) + scale_y_discrete(labels=infnames[2:length(infnames)]) + labs(y = "Fixed Effects", title = "Fixed Effects of Ketamine Infusion on Decision-Making") + theme_bw(base_size = 16)
+
+coefplot::coefplot.glm(ct, intercept = FALSE) + scale_y_discrete(labels=ctnames[2:length(ctnames)]) + labs(y = "Fixed Effects", title = "Fixed Effects of Trajectory after Infusion On Decision-Making, by Treatment Group") + theme(plot.title = element_text(size = 20, face = "bold"),
+                                                                                                                                                                                                                                     +                                                                                                                                                                                                                                         axis.title = element_text(size = 16, face = "bold")) + theme_bw(base_size = 16)

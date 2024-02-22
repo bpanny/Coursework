@@ -1,0 +1,121 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8"/>
+<style>body{background-color:white;}</style>
+<script src="lib/jquery-3.6.0/jquery-3.6.0.min.js"></script>
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<link href="lib/bootstrap-3.3.5/css/cosmo.min.css" rel="stylesheet" />
+<script src="lib/bootstrap-3.3.5/js/bootstrap.min.js"></script>
+<script src="lib/bootstrap-3.3.5/shim/html5shiv.min.js"></script>
+<script src="lib/bootstrap-3.3.5/shim/respond.min.js"></script>
+<style>h1 {font-size: 34px;}
+       h1.title {font-size: 38px;}
+       h2 {font-size: 30px;}
+       h3 {font-size: 24px;}
+       h4 {font-size: 18px;}
+       h5 {font-size: 16px;}
+       h6 {font-size: 12px;}
+       code {color: inherit; background-color: rgba(0, 0, 0, 0.04);}
+       pre:not([class]) { background-color: white }</style>
+<script src="lib/kePrint-0.0.1/kePrint.js"></script>
+<link href="lib/lightable-0.0.1/lightable.css" rel="stylesheet" />
+
+</head>
+<body>
+<table class="table" style="margin-left: auto; margin-right: auto;">
+ <thead>
+  <tr>
+   <th style="text-align:left;">   </th>
+   <th style="text-align:right;"> coef </th>
+   <th style="text-align:right;"> exp(coef) </th>
+   <th style="text-align:right;"> se(coef) </th>
+   <th style="text-align:right;"> z </th>
+   <th style="text-align:right;"> Pr(&gt;|z|) </th>
+  </tr>
+ </thead>
+<tbody>
+  <tr>
+   <td style="text-align:left;"> tx </td>
+   <td style="text-align:right;"> -0.6844423 </td>
+   <td style="text-align:right;"> 0.5043715 </td>
+   <td style="text-align:right;"> 0.2149188 </td>
+   <td style="text-align:right;"> -3.1846556 </td>
+   <td style="text-align:right;"> 0.0014493 </td>
+  </tr>
+  <tr>
+   <td style="text-align:left;"> sexmale </td>
+   <td style="text-align:right;"> 0.0791581 </td>
+   <td style="text-align:right;"> 1.0823754 </td>
+   <td style="text-align:right;"> 0.2811359 </td>
+   <td style="text-align:right;"> 0.2815651 </td>
+   <td style="text-align:right;"> 0.7782770 </td>
+  </tr>
+  <tr>
+   <td style="text-align:left;"> ivdrugcurrently </td>
+   <td style="text-align:right;"> 0.9876170 </td>
+   <td style="text-align:right;"> 2.6848290 </td>
+   <td style="text-align:right;"> 1.0059047 </td>
+   <td style="text-align:right;"> 0.9818197 </td>
+   <td style="text-align:right;"> 0.3261887 </td>
+  </tr>
+  <tr>
+   <td style="text-align:left;"> ivdrugpreviously </td>
+   <td style="text-align:right;"> -0.4749416 </td>
+   <td style="text-align:right;"> 0.6219214 </td>
+   <td style="text-align:right;"> 0.3343346 </td>
+   <td style="text-align:right;"> -1.4205576 </td>
+   <td style="text-align:right;"> 0.1554454 </td>
+  </tr>
+  <tr>
+   <td style="text-align:left;"> karnof80 </td>
+   <td style="text-align:right;"> -0.6775406 </td>
+   <td style="text-align:right;"> 0.5078645 </td>
+   <td style="text-align:right;"> 0.3637763 </td>
+   <td style="text-align:right;"> -1.8625200 </td>
+   <td style="text-align:right;"> 0.0625298 </td>
+  </tr>
+  <tr>
+   <td style="text-align:left;"> karnof90 </td>
+   <td style="text-align:right;"> -1.6316053 </td>
+   <td style="text-align:right;"> 0.1956153 </td>
+   <td style="text-align:right;"> 0.3555343 </td>
+   <td style="text-align:right;"> -4.5891637 </td>
+   <td style="text-align:right;"> 0.0000045 </td>
+  </tr>
+  <tr>
+   <td style="text-align:left;"> karnof100 </td>
+   <td style="text-align:right;"> -2.1099481 </td>
+   <td style="text-align:right;"> 0.1212443 </td>
+   <td style="text-align:right;"> 0.3987013 </td>
+   <td style="text-align:right;"> -5.2920521 </td>
+   <td style="text-align:right;"> 0.0000001 </td>
+  </tr>
+  <tr>
+   <td style="text-align:left;"> cd4 </td>
+   <td style="text-align:right;"> -0.0161973 </td>
+   <td style="text-align:right;"> 0.9839332 </td>
+   <td style="text-align:right;"> 0.0025028 </td>
+   <td style="text-align:right;"> -6.4716925 </td>
+   <td style="text-align:right;"> 0.0000000 </td>
+  </tr>
+  <tr>
+   <td style="text-align:left;"> priorzdv </td>
+   <td style="text-align:right;"> -0.0025242 </td>
+   <td style="text-align:right;"> 0.9974790 </td>
+   <td style="text-align:right;"> 0.0038421 </td>
+   <td style="text-align:right;"> -0.6569810 </td>
+   <td style="text-align:right;"> 0.5111931 </td>
+  </tr>
+  <tr>
+   <td style="text-align:left;"> age </td>
+   <td style="text-align:right;"> 0.0203405 </td>
+   <td style="text-align:right;"> 1.0205488 </td>
+   <td style="text-align:right;"> 0.0108383 </td>
+   <td style="text-align:right;"> 1.8767177 </td>
+   <td style="text-align:right;"> 0.0605568 </td>
+  </tr>
+</tbody>
+</table> <script type="text/x-mathjax-config">MathJax.Hub.Config({tex2jax: {inlineMath: [["$","$"]]}})</script><script async src="https://mathjax.rstudio.com/latest/MathJax.js?config=TeX-AMS-MML_HTMLorMML"></script>
+</body>
+</html>

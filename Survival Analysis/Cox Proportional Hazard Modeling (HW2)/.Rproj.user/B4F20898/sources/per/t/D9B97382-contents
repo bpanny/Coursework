@@ -1,0 +1,20 @@
+
+setwd("C:\\Users\\yingding\\OneDrive - University of Pittsburgh\\Biost2066\\Codes")
+# read in WHAS100 data
+whas100 <- read.csv("./whas100.csv",head=T)
+head(whas100)
+
+library(survival)
+# produce K-M estimate with 95% log-log based CI 
+KM.whas100 <- survfit(Surv(lenfol,fstat)~1, data=whas100, 
+                      conf.int=0.95, error = "greenwood", conf.type="log-log")
+summary(KM.whas100)
+# plot K-M estimate and its associated CI
+plot(KM.whas100, main="Survival following MI hospitalization", xlab="days", ylab="Survival probability")
+
+library(km.ci)
+# calculate 95% CB
+KM.cb <- km.ci(KM.whas100, conf.level=0.95, tl=6, tu=2700, method="hall-wellner")
+summary(KM.cb)
+lines(KM.cb,lty=3,col="blue")
+

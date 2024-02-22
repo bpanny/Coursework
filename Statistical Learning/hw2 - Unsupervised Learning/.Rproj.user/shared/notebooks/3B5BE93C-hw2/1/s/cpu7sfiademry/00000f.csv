@@ -1,0 +1,4 @@
+"0","#plot WCSS vs different K values"
+"0","plot(1:6, WCSS, "
+"0","     type=""o"", col=""black"","
+"0","     xlab=""K"", ylab=""WCSS"")"

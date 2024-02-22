@@ -1,0 +1,13 @@
+"0","knitr::opts_chunk$set(echo = TRUE)"
+"0","library(tidyverse)"
+"0","whas <- read_csv(""whas100.csv"") %>% "
+"0","  mutate(fstat = as.factor(if_else(fstat == 1, ""Dead"", ""Alive"")))"
+"2","[1mRows: [22m[34m100[39m [1mColumns: [22m[34m9[39m"
+"2","[36m──[39m [1mColumn specification[22m [36m────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────[39m
+[1mDelimiter:[22m "",""
+[31mchr[39m (2): admitdate, foldate
+[32mdbl[39m (7): id, los, lenfol, fstat, age, sex, bmi"
+"2","
+[36mℹ[39m Use `spec()` to retrieve the full column specification for this data.
+[36mℹ[39m Specify the column types or set `show_col_types = FALSE` to quiet this message."
+"0","library(kableExtra)"

@@ -1,0 +1,155 @@
+---
+title: "Applied Regression Data Analysis #1"
+author: "Benjamin Panny"
+date: "Due January 25th, 2023"
+# bibliography: references.bib 
+output:
+  html_document:
+     toc: true
+     toc_float: true
+  pdf_document: default
+  word_document: default
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+# Load Libraries and Data
+
+```{r load, message=F, warning=F}
+library(tidyverse)
+source("alr_utility.R")
+dat <- read_csv("DA4.csv") %>% mutate(capsule = factor(capsule, levels=c(0,1), 
+                                       labels=c("no", "yes")),
+                      race = factor(race, levels=c(1,2),
+                                    labels=c("white","black")),
+                      dpros = factor(dpros, levels=1:4, 
+                                     labels=c("no nodule","left",
+                                              "right","bilobar")),
+                      dcaps = factor(dcaps, levels=1:2,
+                                     labels=c("no","yes")))
+```
+
+# Background
+
+Question:  A study was designed to identify variables associated with tumor penetration of prostatic capsule in patients with prostate cancer.  Data were collected from an academic affiliated cancer center.  For this assignment, the dataset was modified to include 374 patients and a subset of variables from the main study.  Of the 374 patients, 151 had a cancer that penetrated the prostatic capsule. 
+
+# Centering Variables
+
+a.	For interpretability, center the continuous predictors “age”, “psa”, “vol”, and “gleason” by their median values. Please generate variables “age_c”, “psa_c”, “vol_c” and “gleason_c” accordingly.
+
+```{r center}
+dat <- dat %>% mutate(age_c = age - median(age),
+               psa_c = psa - median(psa),
+               vol_c = vol - median(vol),
+               gleason_c = gleason - median(gleason))
+```
+
+
+# Fit model 3 and generate an ROC curve and compute the AUC metric
+
+Using model 3 from DA4 (outcome=ni, predictors=dpros, gleason_c, psa_c, vol_c), determine the capability of discrimination between tumor penetration of prostatic capsule.  Generate an ROC curve and AUC.  Interpret.				
+
+```{r fit glm}
+glm_3 <- glm(capsule ~ dpros + gleason_c + psa_c + vol_c, data = dat, family = "binomial")
+```
+
+```{r determine discrimination, message=F}
+rocobj <- pROC::roc(dat$capsule=="yes", predict(glm_3), ret="coords")
+pROC::ggroc(rocobj, legacy.axes=TRUE) + 
+    geom_segment(aes(x = 0, xend = 1, y = 0, yend = 1),
+                 color="grey", linetype="dashed")
+pROC::auc(rocobj)
+```
+
+Based on the ROC curve's AUC metric, the 3rd (glm_3) model has very good discrimination capability/performance. The AUC metric is 0.8215. This observation of a relatively high AUC metric (where max AUC = 1) is very good because it indicates that the model is good at optimizing the rate trade off when the classification threshold based on the model's predicted penetration probability is increased. This tradeoff is between the true positive rate and false positive rate. As the classification threshold based on the model's predicted penetration probability increases, the true positive rate rises much faster than the false positive rate.
+
+## Sensitivity and Specificity
+
+What is the sensitivity and specific of this model using the probability of predicting tumor penetration=0.50? Interpret.
+
+```{r sensitivity and specificity}
+(prob <- dat %>% mutate(predict = predict(glm_3, type="response")) %>% 
+  group_by(capsule) %>% summarize(value=mean(predict > 0.5)))
+```
+
+When penetration is present, the model's sensitivity (true positive rate) is ~.622 based on a 0.5 probability classification threshold. This indicates that the model correctly predicts the presence of penetration 62.2% of the time when penetration is actually present. This is calculated by computing $\frac{True Positives}{True Positives + False Negatives}$. When penetration is not present, the model's specificity (true negative rate) is ~.843 based on a 0.5 probability classification threshold.  This indicates that the model correctly predicts the absence of penetration 84.3% of the time when penetration is absent. This is calculated above by computing $1 - \frac{False Negative}{False Positive + True Negative}$. 
+
+# Multinomial Logistic Regression 
+
+Predict the results of the digital rectal exam based on our list of possible covariates (race, dcaps, age_c, psa_c, vol_c, and gleason_c).  Results of the digital rectal exam are coded as  “no nodule”, “left”, “right”, “bilobar”.
+
+## Fit
+
+```{r mnlr}
+multi_fit <- nnet::multinom(dpros ~ race + dcaps + age_c + psa_c + vol_c + gleason_c, data = dat)
+```
+The model fitting algorithm converges.
+
+## Interpret important covariates
+
+b.	Which covariates seem to be important? Interpret.
+
+```{r interpret important mnlr covs}
+sum_fit <- summary(multi_fit)
+
+## calculate z-score
+z <- sum_fit$coefficients/sum_fit$standard.errors
+
+# Calculate the two tailed p-value
+format((p <- (pnorm(abs(z), lower.tail=FALSE)) * 2),scientific=F)
+z
+```
+
+Using the normal approximation to calculate the p-value of the regression coefficients, I observe many significant effects. 
+
+1. The (negative) intercept for the bilobar nodule result relative to the no nodule result is significantly different from zero, indicating that having white race compared to black, no detection of capsular involvement in rectal exam compared to detection, median age, median psa volume, median tumor volume, and median gleason score are associated with lower odds of bilobar nodule results compared to no nodule results. 
+2. The positive coefficient for detection of capsular involvement for the bilobar nodule result relative to the no nodule result is significantly different from zero. This indicates that having detection of capsular involvement in rectal exam increases the odds of a bilobar nodule result compared to having no detection of capsular involvement in rectal exam. 
+3. The negative coefficient for centered age for the right nodule result relative to the no nodule result is significantly different from zero. This indicates that having a below median age increases the odds of having a right nodule result compared to having a no nodule result and that having an above median age decreases the odds of having a right nodule result compared to having a no nodule result.
+4. The positive coefficients for centered gleason score for the (separately) left, right, and bilobar nodule results relative to the no nodule result are significantly different from zero. This indicates that having a below median gleason score is associated with lower odds of (separately) left, right, and bilobar nodule results relative to the no nodule result and that having above median gleason score is associated with higher odds of (separately) left, right, and bilobar nodule results relative to the no nodule result.
+5. No coefficients for having black race (relative to white race), psa values, and psa volumes are significant.
+
+## Pass the Goodness of Fit Test?
+
+c.	Does the model in part a. pass the goodness of fit test?
+
+```{r mnlr goodness of fit test}
+generalhoslem::logitgof(dat$dpros, fitted(multi_fit), g = 10, ord = FALSE)
+```
+
+We have no statistically significant evidence to suggest that the model does not fit well.
+
+## Remove unimportant covariates
+
+d.	Refit the model removing the covariates which don’t seem to be important 
+from part b.
+
+```{r mnlr without important covs}
+multi_fit_2 <- nnet::multinom(dpros ~ dcaps + age_c + gleason_c, data = dat)
+```
+
+The model fitting algorithm converges
+
+## Interpret RRRs for DCAPS and Gleason
+
+e.	Interpret the RRRs for DCAPS and Gleason score from this model 
+comparing bilobar nodule to no nodule.
+
+```{r RRR for DCAPS}
+(rrr <- exp(coef(multi_fit_2)[,-1]))
+```
+
+The odds of having bilobar nodule results compared to no nodule results when capsular involvement is detected is 5.61 times higher compared to when no capsular involvement is detected
+
+The odds of having bilobar nodule results compared to no nodule results increase by 2.02 times for each unit increase in gleason score above the minimum gleason score. 
+
+## Goodness of fit test for simpler model
+
+f.	Assess the goodness of fit of this model.
+
+```{r mnlr_2 goodness of fit test}
+generalhoslem::logitgof(dat$dpros, fitted(multi_fit_2), g = 10, ord = FALSE)
+```
+
+We have no statistically significant evidence to suggest that the model does not fit well.

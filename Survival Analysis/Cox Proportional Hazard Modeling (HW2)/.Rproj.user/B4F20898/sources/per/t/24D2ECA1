@@ -1,0 +1,26 @@
+{
+    "id": "24D2ECA1",
+    "path": "~/Education/Biostats School/Fall 2023/Applied Survival Analysis/04 - Interpretation of a Fitted PH Model/coxph_UIS.R",
+    "project_path": null,
+    "type": "r_source",
+    "hash": "1425776672",
+    "contents": "",
+    "dirty": false,
+    "created": 1696250905141.0,
+    "source_on_save": false,
+    "relative_order": 6,
+    "properties": {
+        "source_window_id": "",
+        "Source": "Source",
+        "cursorPosition": "27,28",
+        "scrollLine": "1"
+    },
+    "folds": "",
+    "lastKnownWriteTime": 1696250823,
+    "encoding": "UTF-8",
+    "collab_server": "",
+    "source_window": "",
+    "last_content_update": 1696250823,
+    "read_only": false,
+    "read_only_alternatives": []
+}

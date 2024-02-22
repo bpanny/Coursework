@@ -1,0 +1,5 @@
+"0",""
+"0","as_tibble(H0) %>% "
+"0","  ggplot(aes(x = time, y = hazard)) +"
+"0","  geom_step() +"
+"0","  labs(x = ""Time (Days)"", y = ""Cumulative Hazard"")"

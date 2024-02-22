@@ -1,0 +1,63 @@
+
+setwd("C:\\Users\\yingding\\OneDrive - University of Pittsburgh\\Biost2066\\Codes")
+# read in WHAS100 data
+whas100 <- read.csv("./whas100.csv",head=T)
+
+library(survival)
+
+# fit Cox PH model with covariate "sex"
+fit.1<-coxph(Surv(lenfol/365.25, fstat)~ sex, data=whas100)
+fit.1
+summary(fit.1)
+
+# create a new variable for categorizing age groups
+whas100$age.cat<-cut(whas100$age,c(31,59,69,79,92))
+
+# fit Cox PH model with covariate "age.cat"
+fit.2 <- coxph(Surv(lenfol/365.25, fstat) ~ factor(age.cat), data=whas100)
+fit.2
+summary(fit.2)
+
+# calculate Wald test statistic for "p-covariates" (testing 4 age categories together)
+coef(fit.2)
+fit.2$var
+wald.fit.2 <- t(coef(fit.2)) %*% solve(fit.2$var) %*% coef(fit.2)
+wald.fit.2
+
+
+# handle ties with "efron" (which is R default)
+fit.1<-coxph(Surv(lenfol/365.25, fstat)~ sex, ties=c("efron"), data=whas100)
+fit.1
+
+# handle ties with "breslow"
+fit.1<-coxph(Surv(lenfol/365.25, fstat)~ sex, ties=c("breslow"), data=whas100)
+fit.1
+
+# handle ties with "exact"
+fit.1<-coxph(Surv(lenfol/365.25, fstat)~ sex, ties=c("exact"), data=whas100)
+fit.1
+
+# extract estimated survival probabilities
+fit.1<-coxph(Surv(lenfol/365.25, fstat)~ sex, ties=c("efron"), data=whas100)
+base.surv<-survfit(fit.1, centered=F) # need to use "centered=F" to get S_0(t|X=0), otherwise it gives S_0(t|Avg X)
+male.surv<-base.surv$surv
+female.surv<-base.surv$surv^exp(coef(fit.1))
+
+plot(stepfun(base.surv$time,c(1,male.surv)),col="red",ylim=c(0,1),xlim=c(0,9), ylab=c("Survival Probability"),
+     xlab=c("Time (Years)"),main=list("Survival Function Estimates from Cox Model (WHAS100 data)",cex=1))
+lines(stepfun(base.surv$time,c(1,female.surv)),col="blue")
+legend(x=0,y=0.2,c("Male","Female"),lty=c(1,1),col=c("red","blue"))
+
+
+# comparison with KM estimators for each sex group
+
+fit.1.KM <- survfit(Surv(lenfol/365.25, fstat) ~ sex, data=whas100)
+#summary(fit.1.KM)
+
+plot(fit.1.KM, ylim=c(0,1),xlim=c(0,9), ylab=c("Survival Probability"),
+     xlab=c("Time (Years)"),col=c("red","blue"),main=c("KM Estimators by Sex"))
+# add those two estimated lines from coxph to the KM plot
+lines(stepfun(base.surv$time,c(1,female.surv)),col="blue",lty=2)
+lines(stepfun(base.surv$time,c(1,male.surv)),col="red",lty=2)
+legend(x=0,y=0.2,c("Male","Female"),lty=c(1,1),col=c("red","blue"))
+

@@ -1,0 +1,26 @@
+{
+    "id": "3AA02437",
+    "path": "~/Education/Biostats School/Fall 2023/Applied Survival Analysis/06 - Assessment of Model Adequacy/coxph_WHAS500_diagnostics.R",
+    "project_path": null,
+    "type": "r_source",
+    "hash": "3577791441",
+    "contents": "",
+    "dirty": false,
+    "created": 1699904455980.0,
+    "source_on_save": false,
+    "relative_order": 5,
+    "properties": {
+        "source_window_id": "",
+        "Source": "Sourceeygw2uyy23m8",
+        "cursorPosition": "20,39",
+        "scrollLine": "0"
+    },
+    "folds": "",
+    "lastKnownWriteTime": 1699904384,
+    "encoding": "UTF-8",
+    "collab_server": "",
+    "source_window": "",
+    "last_content_update": 1699904384,
+    "read_only": false,
+    "read_only_alternatives": []
+}

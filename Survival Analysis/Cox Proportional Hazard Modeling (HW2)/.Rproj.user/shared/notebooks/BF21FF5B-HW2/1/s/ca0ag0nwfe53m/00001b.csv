@@ -1,0 +1,5 @@
+"0","#rem status = 1 is full remission, rem status = 2 is partial remission"
+"0","#trial conducted by matching pairs of patients by remission status and randomizing within the pair to either 6-Mp or placebo maintenace"
+"0","leuk %>% "
+"0","  ggplot(aes(x = time_relapse, fill = treatment))+"
+"0","  geom_boxplot()"

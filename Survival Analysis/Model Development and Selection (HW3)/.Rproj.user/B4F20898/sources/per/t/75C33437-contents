@@ -1,0 +1,187 @@
+---
+title: "HW2"
+author: "Benjamin Panny"
+date: "`r Sys.Date()`"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+library(tidyverse)
+library(survival)
+```
+
+```{r}
+leuk <- read_csv('leukemia.csv')
+```
+## 1. Leukemia Treatment Study
+
+a.	(10 pts) Describe what you have observed regarding “time-to-relapse” in each treatment group. (Use SAS or R) For each group, report the total number of events
+
+```{r}
+#rem status = 1 is full remission, rem status = 2 is partial remission
+#trial conducted by matching pairs of patients by remission status and randomizing within the pair to either 6-Mp or placebo maintenace
+leuk %>% 
+  ggplot(aes(x = time_relapse, fill = treatment))+
+  geom_boxplot()
+leuk %>% 
+  ggplot(aes(x = time_relapse, fill = factor(remission_status)))+
+  geom_histogram()+
+  facet_wrap(~treatment)+
+  labs(fill = "Remission Status")
+```
+
+The "time_to_relapse" distribution for the placebo group is shifted to the left compared to the 6-MP group. 
+
+```{r}
+leuk %>% 
+  count(treatment, event_indicator)
+```
+
+
+The total number of events in the 6-MP group is 9 and the total number of events in the placebo group is 21. This table indicates that everyone in the placebo group experienced an event, while not everyone in the 6-MP group did.
+
+a. For each group, report the median time-to-relapse, and the 95% pointwise CI for the median. 
+b.	(10 pts) Use SAS or R to generate K-M estimators for each treatment group. Plot the two K-M curves in a single plot.
+
+```{r}
+leuk_1 <- survfit(Surv(time_relapse,event_indicator) ~ treatment, data=leuk,conf.type="log-log")
+summary(leuk_1)
+print(leuk_1, print.rmean=TRUE)
+```
+
+The median time to relapse for the 6-MP group was 23 units of time, the lower bound of the 95% confidence interval is 13, while the upper bound could not be computed. The median time to relapse in the placebo group was 8 units of time, with a lower bound of the 95% confidence intrval at 4, and an upper bound at 11.
+
+```{r}
+plot(leuk_1, main="Kaplan-Meier estimate by treatment", xlab="Time", ylab="Estimated Survival Probability", lty=c(1,2),col=c("blue","red"))
+legend(x=1,y=0.3,legend=c("6-MP","Placebo"),col=c("blue","red"),lty=c(1,2))
+```
+
+The survival curve for the 6-MP group appears more optimistic.
+
+c.	(10 pts) Perform the log-rank comparing the two treatment groups and interpret the result.
+
+```{r}
+leuk_diff <- survdiff(Surv(time_relapse,event_indicator) ~ treatment, data=leuk)
+leuk_diff
+```
+
+The log rank test-statistic is statistically significant. This is statistical reason to reject the null hypothesis that the survival function of the 6-MP group is the same as the survival function of the placebo group for all time `t` in support of the alternative hypothesis, that the survival functions at at least some time t are unequal.
+
+
+d.	(10 pts) Take the paired design into account and perform a stratified log-rank test with stratification on the remission status. Output and interpret the result.
+
+```{r}
+leuk_diff_strat <- survdiff(Surv(time_relapse,event_indicator) ~ treatment + strata(remission_status), data=leuk)
+leuk_diff_strat
+```
+
+The null hypothesis for the stratified log-rank test is that the survival function at time t for each stratum in each treatment group is the same for all times `t`. Our chi-square statistic is significantly unlikely given the null hypothesis, indicating a statistical reason to reject this null hypothesis in support of the alternative hypothesis, that at least one of the survival functions at at least some time t is different from the rest.
+
+## 2. German Breast Cancer Study
+
+```{r}
+gbcs <- read_tsv('gbcs.txt')
+```
+
+diagdate = date of diagnosis
+recdate = date of recurrence free survival
+deathdate = date of death
+age = age at diagnosis
+menopause = menopausal status
+hormone = hormone therapy
+
+a.	(10 pts) Fit the proportional hazards model containing age, menopause status, hormone therapy, tumor size, number of nodes, number of progesterone receptors, and number of estrogen receptors. Report the model fit summary.
+
+```{r}
+# values of menopause and hormone are 1 and 2. I'm assuming 2 == 1 and 1 == 0 in the data dictionary
+gbcs_for_mod <- gbcs %>% 
+  mutate(menopause = factor(if_else(menopause == 2, "Yes", "No")),
+         hormone = factor(if_else(hormone == 2, "Yes", "No")))
+gbcs_1 <- gbcs_for_mod %>% 
+  coxph(Surv(rectime, censrec)~ age
+        + menopause + hormone + size + nodes +
+          prog_recp + estrg_recp, 
+        data = .)
+gbcs_1_summary <- gbcs_1 %>% summary()
+```
+
+```{r}
+gbcs_1_summary
+```
+
+b.	(5 pts) Assess the significance of the model using the partial log likelihood ratio test.
+
+The significance of the model is supported by the partial log likelihood ratio test. That is, we have statistical reason to reject the null hypothesis that all the coefficients in the model are 0.
+
+c.	(15 pts) For the model in 3(a), using the univariate Wald tests, which variables do not appear to contribute to the model? Fit a reduced model by removing the variables that are not significant from the univariate Wald test. 
+
+```{r}
+gbcs_1_summary
+```
+
+The Wald-test for the beta coefficients is significant for hormone treatment, tumor size, number of nodes, and number of progesterone receptors. The interepretation of these exp(coefficients) is that they are hazard ratios, given unit increases in the covariates. For example, holding all other covariates constant, a patient receiving hormone treatment has ~30% lower hazard than those who are not receiving hormone treatment. As a continuous example, holding all other covariates constant, a one millimeter increase in tumor size is associated with a ~0.84% higher hazard. It appears that age, menopause status, and the number of estrogen receptors do not contribute to the model significantly.
+
+```{r}
+gbcs_2 <- gbcs_for_mod %>% 
+    coxph(Surv(rectime, censrec)~ hormone + size + nodes + prog_recp, 
+          data = .)
+gbcs_2_summary <- gbcs_2 %>% summary()
+gbcs_2_summary
+```
+
+Then test for the significance of the variables removed using the partial log-likelihood ratio test between the full model and the reduced model. 
+
+```{r}
+anova(gbcs_2,gbcs_1)
+```
+
+There is no significant improvement in the model's log likelihood when using the full model compared to the reduced model.
+
+
+d.	(15 pts) Estimate the baseline survival function for the reduced model in problem 3(c). Plot the estimated baseline survival function (as a step function) versus recurrence time.
+
+```{r}
+test.nc<-basehaz(gbcs_2,centered=F)
+plot(test.nc$time,exp(-test.nc$hazard),type="l",lty=1,col=3,ylim=c(0,1),ylab=c("Baseline Survival Estimates"),xlab=c("Recurrence Time (Months)")) # no hormone; no centering
+title(main=list("Baseline Survival Estimates from Cox Model (GBCS Data)",cex=1))
+```
+
+
+e.	(15 pts) Repeat problem 1(d) fitting the model in 1(c) centering all continuous covariates at their median. Explain why the range of the estimated baseline survival functions in problems 1(d) and 1(e) are different.
+
+```{r}
+gbcs_for_mod_3 <- gbcs_for_mod %>% 
+  mutate(size_c = size - median(size),
+         nodes_c = nodes - median(nodes),
+         prog_recp_c = prog_recp - median(prog_recp))
+gbcs_3 <- gbcs_for_mod_3 %>% 
+    coxph(Surv(rectime, censrec)~ hormone + size_c + nodes_c + prog_recp_c, 
+          data = .)
+gbcs_3_summary <- gbcs_3 %>% summary()
+gbcs_3_summary
+```
+
+
+```{r}
+test.c<-basehaz(gbcs_3,centered=F)
+
+plot(test.nc$time,exp(-test.nc$hazard),type="l",lty=1,col=3,ylim=c(0,1),ylab=c("Baseline Survival Estimates"),xlab=c("Recurrence Time (Months)")) # no hormone; no centering
+lines(test.c$time,exp(-test.c$hazard),type="l",lty=3,col=6,lwd=2) # no hormone; centering
+title(main=list("Baseline Survival Estimates from Cox Model (GBCS Data)",cex=1))
+legend(x=0,y=0.22,c("No Hormone Therapy Without Centoring","No Hormone Therapy With Centering"),lty=c(1,3),col=c(3,6),lwd=2)
+```
+
+
+```{r}
+gbcs_summary <- gbcs  %>% 
+  summarize(size_median = median(size),
+         nodes_median = median(nodes),
+         prog_recp_median = median(prog_recp))
+```
+
+
+The range of the estimated baseline survival functions in problems 2(d) and 2(e) are different because 2d) is the "baseline" survival function, where `hormone treatment = None`, `tumor size = 0mm`, `# nodes = 0`, `# prog_recp = 0`, while 2e) is the "baseline/median" survival function, where `hormone treatment = None`, tumor size = `r gbcs_summary$size_median`, # nodes = `r gbcs_summary$nodes_median`, # prog_recp = `r gbcs_summary$prog_recp_median`
+
+
+

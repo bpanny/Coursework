@@ -1,0 +1,6 @@
+"0","coxsnell.r <- gtsg$c-resid(gtsg_mod,type=""martingale"")"
+"0",""
+"0","fitres <- survfit(Surv(coxsnell.r, gtsg$c)~1)"
+"0",""
+"0","plot(fitres$time,-log(fitres$surv),type='s',xlab='Cox-Snell Residuals', "
+"0","     ylab='Estimated Cumulative Hazard Function')"

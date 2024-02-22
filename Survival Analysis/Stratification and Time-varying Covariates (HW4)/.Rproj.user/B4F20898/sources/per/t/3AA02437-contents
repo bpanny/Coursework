@@ -1,0 +1,50 @@
+
+setwd("C:\\Users\\yingding\\OneDrive - University of Pittsburgh\\Biost2066\\Codes")
+# read in WHAS500 data
+whas500 <- read.table("whas500.dat", as.is=T)
+names(whas500)<-c("id","age","sex","hr","sysbp","diasbp",
+                  "bmi","cvd","afb","sho","chf","av3","miord",
+                  "mitype","year","admitdate","disdate","fdate",
+                  "los","dstat","lenfol","fstat")
+
+
+library(survival)
+
+bmifp1 <- (whas500$bmi/10)^2
+bmifp2 <- (whas500$bmi/10)^3
+
+# preliminary final model
+fit.pre.final <- coxph(Surv(lenfol/365.25, fstat)~ bmifp1 + bmifp2 + age + hr + diasbp 
+                       + sex + chf + age * sex, data=whas500)
+fit.pre.final
+
+## Scaled Schoenfeld residual through "cox.zph"
+
+zph.fit.whas500.t<-cox.zph(fit.pre.final,transform="identity")  # use the g(t)=t tranformation
+zph.fit.whas500.t
+
+zph.fit.whas500.logt<-cox.zph(fit.pre.final,transform=function(x){log(x)})  # use the g(t)=log(t) tranformation
+zph.fit.whas500.logt
+
+zph.fit.whas500.km<-cox.zph(fit.pre.final)  # use the default "km" tranformation
+zph.fit.whas500.km
+
+zph.fit.whas500.rank<-cox.zph(fit.pre.final,transform="rank")  # use the default "km" tranformation
+zph.fit.whas500.rank
+
+# plot the scaled schoenfeld residual for covariate "HR"
+plot(zph.fit.whas500.t[4]) # each column corresponds to a covariate, "HR" is the 4th column
+
+
+## Martingale residual
+
+## check for HR 
+fit.whas500.noHR  <- coxph(Surv(lenfol/365.25, fstat)~ bmifp1 + bmifp2 + age + diasbp 
+                           + sex + chf + age * sex, data=whas500)
+
+mar.r<-resid(fit.whas500.noHR) # martingale residual
+
+plot(whas500$hr,mar.r,xlab="Heart Rate",ylab="Martingale Residual")
+lines(lowess(whas500$hr,mar.r,iter=0),lty=2)
+
+

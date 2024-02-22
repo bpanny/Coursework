@@ -1,0 +1,29 @@
+
+female<-c(14,44,89,98,104)
+male<-c(6,44,98,114)
+time<-c(female,male)
+censor<-c(1,1,0,1,1,1,0,1,1)
+group<-c(1,1,1,1,1,0,0,0,0)
+my.data<-data.frame(cbind(time,group,censor))
+
+library(survival)
+# K-M estimates for each group
+KM.group <- survfit(Surv(time,censor)~group, data=my.data)
+plot(KM.group, col=c(1,2))
+
+# Log-rank test
+survdiff(Surv(time,censor)~group,data=my.data)
+
+#Call:
+#  survdiff(formula = Surv(time, censor) ~ group, data = my.data)
+
+#N Observed Expected (O-E)^2/E (O-E)^2/V
+#group=0 4        3     3.75     0.149     0.427
+#group=1 5        4     3.25     0.172     0.427
+
+#Chisq= 0.4  on 1 degrees of freedom, p= 0.513 
+
+survdiff(Surv(time,censor)~group,data=my.data,rho=0) # Log-rank test, same as the code above
+survdiff(Surv(time,censor)~group,data=my.data,rho=1) # Modified Peto-Prentice test
+
+

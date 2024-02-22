@@ -1,0 +1,5 @@
+"0","egfr %>% "
+"0","  mutate(income3 = factor(income3),"
+"0","         surgery = factor(surgery),"
+"0","         site = factor(site)) %>% "
+"0","  GGally::ggpairs(columns = c(1, 4:8))"

@@ -1,0 +1,23 @@
+"0","library(mclust) # Adjusted Rand Index"
+"2","Warning: package ‘mclust’ was built under R version 4.3.2"
+"2","                   __           __ 
+   ____ ___  _____/ /_  _______/ /_
+  / __ `__ \/ ___/ / / / / ___/ __/
+ / / / / / / /__/ / /_/ (__  ) /_  
+/_/ /_/ /_/\___/_/\__,_/____/\__/   version 6.0.1
+Type 'citation(""mclust"")' for citing this R package in publications.
+"
+"2","
+Attaching package: ‘mclust’
+
+"
+"2","The following object is masked from ‘package:purrr’:
+
+    map
+
+"
+"0","adjustedRandIndex(hc_label, label)"
+"1","[1]"
+"1"," 0"
+"1","
+"

@@ -1,0 +1,2 @@
+"0","quantiles <- dat$visit %>% quantile(., c(.05, .10, .125,.25,.5,.75,.875,.95), type = 1, names = TRUE)"
+"0","kableExtra::kable(tibble(Percentile = names(quantiles), `Number of Physician Office Visits` = quantiles)) %>% kableExtra::kable_styling()"

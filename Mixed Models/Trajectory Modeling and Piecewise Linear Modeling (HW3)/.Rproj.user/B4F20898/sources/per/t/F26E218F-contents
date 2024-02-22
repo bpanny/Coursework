@@ -1,0 +1,134 @@
+---
+title: "hw3"
+author: "Benjamin Panny"
+date: "`r Sys.Date()`"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+library(lmerTest)
+library(tidyverse)
+```
+
+```{r}
+cog <- read_csv("cognition.csv") %>% 
+  mutate(sexf = factor(if_else(sexf == 1, "Women", "Men")),
+         t2 = t^2)
+
+cog %>% GGally::ggpairs(columns = 2:5)
+```
+
+```{r}
+cog %>% count(t)
+```
+
+## 1. Plot the observed mean score trajectories by sex
+
+```{r}
+cog %>% 
+  group_by(t, t2, sexf) %>% 
+  summarise(mean_score = mean(score)) %>% 
+  ungroup() %>% 
+  ggplot(aes(x = t, y = mean_score, color = sexf)) + 
+  geom_line() + 
+  geom_point() +
+  labs(title = "Mean Score Trajectories by Sex",
+       x = "Time (Years)",
+       y = "Mean Score",
+       color = "Sex")
+
+cog %>% 
+  group_by(t, t2, sexf) %>% 
+  summarise(mean_score = mean(score)) %>% 
+  ungroup() %>% 
+  ggplot(aes(x = t2, y = mean_score, color = sexf)) + 
+  geom_line() + 
+  geom_point() +
+  labs(title = "Mean Score Trajectories by Sex",
+       x = "Time^2 (Years^2)",
+       y = "Mean Score",
+       color = "Sex")
+```
+
+The shape of the mean trajectories by sex  On the average, men have an apparently lower score than women at each point in time. Meanwhile, the mean score for each sex follows an inverted-U shape over time.
+
+The formula for the best random intercepts model is 
+
+$$
+\text{score}_{ij} = \beta_0 + \zeta_0i + \beta_1\times\text{Sex}_{ij} + \beta_2\times\text{Time}_{ij} + \beta_3\times\text{Time}^2_{ij} + \beta_4\times\text{Sex}_{ij}\times\text{Time}_{ij} + \epsilon_{ij}
+$$
+
+where $i = \text{subject}, j = \text{visit}$
+
+
+```{r}
+int_1 <- lmer(score ~ sexf * t + t2 + (1 | studyid), data = cog, REML = F) 
+int_1 %>%  summary()
+```
+
+The formula for the best random coefficients model is 
+
+$$
+\text{score}_{ij} = \beta_0 + \zeta_0i + \beta_1\times\text{Sex}_{ij} + \left(\beta_2 + \zeta_{2i}\right)\times\text{Time}_{ij} + \beta_3\times\text{Time}^2_{ij} + \beta_4\times\text{Sex}_{ij}\times\text{Time}_{ij} + \epsilon_{ij}
+$$
+
+where $i = \text{subject}, j = \text{visit}$
+
+```{r}
+coef_1 <- lmer(score ~ sexf * t + t2 + (1 + t | studyid), data = cog, REML = F) 
+coef_1 %>% summary()
+```
+
+```{r}
+anova(int_1, coef_1)
+```
+
+## Piecewise-Linear Model
+
+```{r}
+cog %>% 
+  group_by(t) %>% 
+  summarise(mean = mean(score),
+            median = median(score),
+            std = sd(score),
+            min = min(score),
+            max = max(score))
+```
+
+```{r}
+cog <- cog %>%
+    mutate(
+        t_2 = if_else(t == 2, 1, 0),
+        t_3 = if_else(t == 3, 1, 0),
+        t_4 = if_else(t == 4, 1, 0),
+        t_5 = if_else(t == 5, 1, 0),
+        t_6 = if_else(t == 6, 1, 0),
+        t_7 = if_else(t == 7, 1, 0),
+        t_8 = if_else(t == 8, 1, 0),
+        t_9 = if_else(t == 9, 1, 0),
+        t_10 = if_else(t == 10, 1, 0),
+    )
+fit_pw_rc_mle1 <- lmer(score ~ sexf*(t_2 + t_3 + t_4 + t_5 + t_6 + t_7 + t_8 +t_9 + t_10) + (1 + t | studyid), data = cog, REML=F)
+summary(fit_pw_rc_mle1)
+```
+
+```{r}
+anova(coef_1, fit_pw_rc_mle1)
+```
+
+## Plot Predictions
+
+```{r}
+cog$predict_coef <- predict(coef_1)
+cog$predict_pw <- predict(fit_pw_rc_mle1)
+cog %>% 
+  pivot_longer(cols = starts_with('predict'),
+               names_to = "model",
+               values_to = "prediction") %>% 
+  ggplot(aes(x = t, y = prediction, color = model)) +
+  geom_smooth() +
+  #stat_summary(aes(group = gender), geom = "line", fun = mean) +
+  #stat_smooth(aes(group = gender)) +
+  theme_bw() 
+```

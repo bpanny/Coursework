@@ -1,0 +1,209 @@
+---
+title: "Applied Regression Data Analysis #2"
+author: "Benjamin Panny"
+date: "Due February 8th, 2023"
+# bibliography: references.bib 
+output:
+  html_document:
+     toc: true
+     toc_float: true
+  pdf_document: default
+  word_document: default
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+# Load Packages and Data
+
+```{r, load_packages}
+library(tidyverse)
+library(GGally)
+library(table1)
+```
+
+
+```{r, load_data}
+dat <- read_csv('DA2.csv', show_col_types = FALSE)
+dat %>% glimpse
+```
+
+# Background
+
+Benignus et al. (1981) conducted an animal study to measure blood levels of toluene (bloodtol) (a commonly used solvent) following a 3-hour inhalation exposure to ranging from 11.34 to 1744.77 parts per million (ppm) toluene (newppm). Blood levels are expressed in ppm, weight in grams, age in days and snout size is dichotomous (1=short snout, 2=long snout).  Use these data to conduct your own analysis to model the relationship between blood toluene and exposure, possibly adjusting for weight and age.  
+
+# Data Analyses
+
+## Descriptive Statistics and Visualizations
+
+a.	Use descriptive statistics and graphs to learn about these data.
+
+```{r, table}
+dat$snoutsize <- as.factor(dat$snoutsize)
+levels(dat$snoutsize) <- c("Short Snout", "Long Snout")
+table1::label(dat$bloodtol) <- "Blood Toluene (ppm)"
+table1::label(dat$weight) <- "Weight (grams)"
+table1::label(dat$age) <- "Age (days)"
+table1::label(dat$newppm) <- "Toluene Inhalation Exposure (ppm)"
+table1::label(dat$snoutsize) <- "Snout size (1 = short snout, 2 = long snout)"
+table1::table1(~bloodtol + weight + age + newppm | snoutsize, data = dat)
+```
+
+There appear to be differences in weight and blood toluene between animals with short snouts and long snouts, while their age distributions appear to be the similar. 
+
+```{r, missingness}
+visdat::vis_miss(dat) +
+  theme(axis.text.x = element_text(angle = 90))
+```
+
+There is no missing data.
+
+```{r, correlation_plots, message = FALSE}
+dat %>% select(!rat) %>% ggpairs(mapping = aes(color = snoutsize))
+```
+
+Blood toluene and toluene inhalation exposure are significantly positively correlated. Age and blood toluene are also significantly positively correlated in animals with long snouts.
+
+## Fit model for exposure
+
+b.	Fit a regression model for bloodtol that contains only exposure (newppm) and perform a graphical analysis to assess the appropriateness of your linearity assumptions.  Also assess the normality of the residuals. 
+
+```{r, lm_newppm_only}
+lm_1 <- lm(bloodtol ~ newppm, data = dat) 
+
+dat <- dat %>% mutate(yhat_1 = predict(lm_1), 
+                        jackres_1 = rstudent(lm_1))
+```
+
+### Graphical analysis of appropriateness of linearity assumptions
+
+```{r, viz_linearity}
+dat %>% ggplot(mapping = aes(x = yhat_1, y = bloodtol)) + 
+  geom_point() +
+  geom_abline(slope = 1) +
+  xlab("Predicted Blood Toluene (ppm)") +
+  ylab("Observed Blood Toluene (ppm)")
+
+dat %>% ggplot(mapping = aes(x = newppm, y = yhat_1)) + 
+  geom_line() + 
+  geom_point(aes(y = bloodtol), color = "red") +
+  geom_smooth(aes(y = bloodtol), se = FALSE) +
+  xlab("Toluene nhalation Exposure (ppm)") + 
+  ylab("Predicted Blood Toluene (black) and Observed Blood Toluene (red)")
+```
+
+The linearity assumption seems mostly appropriate. There does seem to be a significant linear relationship between inhalation exposure and blood toluene, a best fit line with more degrees of freedom does not change very much from the linear best fit line.
+
+### Visualizing normality of residuals for exposure model
+
+```{r, viz_normality, message=FALSE}
+dat %>% ggplot(mapping = aes(x = jackres_1)) +
+  geom_histogram(aes(y = after_stat(density)), fill = 'steelblue',
+                 color = 'black') + 
+  geom_density(color = 'red') +
+  stat_function(args = list(mean = -.25, sd = .35), fun = dnorm, color = "green") +
+  ggtitle('Probability Density of Residuals') +
+  labs(x='Jackknife Residuals') +
+  theme_bw()
+```
+
+The residuals are somewhat close to being normally distributed, but seem to have a more right skewed spread than would be expected under this assumption. The right tail is larger than it should be. There appear to be outliers in the residuals
+
+```{r, qqplot_1}
+dat %>% ggplot(aes(sample=jackres_1)) +
+  stat_qq() +
+  stat_qq_line() +
+  labs(x="Theoritical quantile", y="Emperical quantile") +
+  theme_bw()
+```
+
+This is reaffirmed by the qq plot of the jackknife residuals. 
+
+## Fit full model with exposure pair-wise interactions
+
+c.	Now add the other predictors to the model.  Assess which are important and explicitly test whether there is interaction (also known as effect modification) of exposure by weight, age or snout size.  
+
+```{r, fit_other_lm}
+lm_2 <- lm(bloodtol ~ newppm + age, data = dat)
+lm_3 <- lm(bloodtol ~ newppm + weight, data = dat)
+lm_4 <- lm(bloodtol ~ newppm + snoutsize, data = dat)
+lm_5 <- lm(bloodtol ~ newppm*age, data = dat)
+lm_6 <- lm(bloodtol ~ weight + snoutsize, data = dat)
+lm_7 <- lm(bloodtol ~ newppm + age + snoutsize + weight, data = dat)
+lm_full <- lm(bloodtol ~ newppm*(age + snoutsize + weight), data = dat)
+anova(lm_7)
+anova(lm_full)
+```
+
+Whether interactions are considered or not, none of the predictors (main effects and pair-wise interactions) appear to significantly contribute to the model after inhalation exposure is accounted for. Inhalation exposure significantly contributes to blood toluene levels.
+
+## Report and evaluate collinearity diagnostics
+
+d.	Out of the models you fit in part c., only using the model with all four variables exposure, weight, age and snout size, report any appropriate collinearity diagnostics and evaluate them.  
+
+```{r, collinearity}
+lm_7 %>% car::vif()
+```
+
+The VIFs are less than 5 for each feature, meaning that the variances of other coefficients do not change much due to the inclusion of any one feature.
+
+## Select best model
+
+```{r, best model}
+library(broom)
+as.tibble(glance(lm_1)) %>% bind_rows(glance(lm_2)) %>%  bind_rows(glance(lm_3)) %>%  bind_rows(glance(lm_4)) %>%  bind_rows(glance(lm_5)) %>%  bind_rows(glance(lm_6)) %>%  bind_rows(glance(lm_7)) %>%  bind_rows(glance(lm_full)) %>% mutate(model_ID = c(1:7, "full")) %>% select(model_ID, AIC, BIC, r.squared) %>% arrange(BIC)
+```
+
+If selecting the best model based on r-squared, the best model is the full model with pair-wise interactions. If assessing by BIC, the best model is lm_1, if assessing by AIC, the best model is lm_2. Given BIC has a stricter balance between predictive performance and parameter count, I feel lm_1 is the best model for its parsimonious predictive power.
+
+## Identifying influential points in best model and performing sensitivity analysis
+
+f.	Based on the model you chose in part e., identify poorly fit, high leverage points, and/or influential points in your model.  Perform a sensitivity analysis by refit the model excluding the troublesome points.  Is your model sensitive to these points?
+
+```{r, influence}
+source("alr_utility.R")
+alr_plot_residual(lm_1, x="yhat")
+alr_plot_residual(lm_1, cutoff=2)
+```
+
+Residuals 33 and 55 are highly influential points from the y space.
+
+```{r, leverage}
+alr_plot_leverage(lm_1)
+```
+
+There are few high leverage observations, such as 33 and 56:60.
+
+### Sensitivity Analysis to high leverage points
+
+```{r, sensitivity}
+inf_leverage_index <- alr_high_leverage(lm_1)
+dat_noInf_leverage <- dat%>%slice(-inf_leverage_index, -55)
+```
+
+```{r, refit_lm_1}
+lm_1_noInfl <- lm(bloodtol ~ newppm, data=dat_noInf_leverage)
+summary(lm_1_noInfl)
+```
+
+Model fit is improved according to the R-squared metric after removing influential data points from the x and y space according to standardized residuals and leverage plots.
+
+## Robust Regression using lm_1
+
+g.	Fit a robust regression using the model you chose in part e and compare the two models.  Comment on the differences.  Do you think the robust model is more appropriate here? 
+
+```{r, robust_lm_1}
+robust_lm_1 <- MASS::rlm(bloodtol ~ newppm, data = dat)
+robust_lm_1 %>% summary
+lm_1 %>% summary
+```
+
+The model's look very similar. The t value is larger in the robust linear model. 
+
+
+## Is a transformation appropriate?
+
+h.	Based on what you saw in your descriptives from part a. would a data transformation be appropriate?  If so which one?  (no need to transform, just comment).
+
+The transformation that seems most fitting for this data is the square root transformation because variance in blood toluene appears to increase in proportion to the mean of blood toluene at different amounts of newppm. However, this transformation does not do much to improve model fit, nor does it affect interpretation of any parameters. The untransformed model is also more interpret able, since it is not clear to me how the square root of blood toluene levels should be interpreted.

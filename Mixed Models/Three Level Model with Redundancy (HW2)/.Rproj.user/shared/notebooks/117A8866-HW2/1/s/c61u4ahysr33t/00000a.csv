@@ -1,0 +1,6 @@
+"0","egfr_wide <- egfr %>%"
+"0","  select(subject, surgery, time, measure = egfr) %>% "
+"0","  pivot_wider(names_from = ""time"","
+"0","              names_prefix = ""visit_"","
+"0","              values_from = ""measure"")"
+"0","aggr(egfr_wide)"

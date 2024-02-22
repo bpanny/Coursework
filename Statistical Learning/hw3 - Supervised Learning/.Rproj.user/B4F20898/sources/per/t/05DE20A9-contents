@@ -1,0 +1,218 @@
+rm(list=ls())
+setwd("C:/Users/<Your directory>/")
+
+library(data.table) # faster data operations than data.frame
+library(xgboost) # state-of-the-art black-box xgboost method
+library(caret)   # the caret package for cross validation and basic ML
+library(pROC)    # to compute AUC of ROC
+library(ggplot2) # to create nice plots
+
+
+
+
+################################################################################
+##### Readmission Model Training                                           #####
+################################################################################
+dat.train <- fread("training.csv") # 91,628 x 49
+dat.test <- fread("testing.csv")
+table(dat.train$readmitted) # frequency of readmission
+
+test.ID <- dat.test$encounter_id # save test ID
+train.Y <- dat.train$readmitted # save readmission column as Y
+dat.train$readmitted <- NULL # drop the readmission column from training data
+
+##### let's preprocess the training and testing data jointly 
+# (you can also preprocess them separately, but make sure in the same way)
+dat <- rbind(dat.train, dat.test) # stack train and test data together
+
+names(dat) # print column names
+lapply(dat, class) # check data format
+summary(dat) # print data format and summary
+
+# lets take a look at the format of the data
+datclass <- unlist(lapply(dat, class)) # print the type of each column
+print(datclass)
+unique(datclass) # numeric are ready for modeling, character and integer may not be, and requires additional preprocessing
+
+# lets find out more about the columns that are character or integer to find out more
+for(j in 1:ncol(dat)){
+  print(datclass[j])
+  if(datclass[j] == "character") { # if this column is character type
+    print(table(dat[, j, with = FALSE]))
+  }
+  if(datclass[j] == "integer") { # if this column is integer type
+    print(range(dat[, j, with = FALSE]))
+  }
+}
+# "character" class: check number of unique strings
+# "integer" class: check the range of values
+
+
+
+
+
+# THIS IS JUST WHAT I WOULD DO, FEEL FREE TO MODIFY
+# I DIDN'T DO ANY IMPUTATION ABOUT MISSING VALUES
+
+##### looks like there are some super rare features, I consider removing them
+var_rem <- c("acetohexamide", "troglitazone", "examide", "citoglipton", 
+             "glipizide.metformin", "glimepiride.pioglitazone", 
+             "metformin.rosiglitazone", "metformin.pioglitazone")
+dat[, (var_rem) := NULL] # those columns are gone
+
+
+##### variables that look like they should be numerical
+var_num <- c("age", "weight", "time_in_hospital", "num_lab_procedures", 
+             "num_procedures", "num_medications", "number_outpatient", 
+             "number_emergency", "number_inpatient", "number_diagnoses")
+lapply(dat[, var_num, with = FALSE], class) # check their class
+# make age into numerical using median value of the bins
+temp.age <- as.factor(dat$age)
+levels(temp.age) <- c("5", "15", "25", "35", "45", "55", "65", "75", "85", "95")
+dat$age <- as.integer(as.character(temp.age))
+unique(dat$age)
+# make weight into numerical using median value of the bins
+temp.weight <- as.factor(dat$weight)
+levels(temp.weight)
+levels(temp.weight) <- c("NA", "13", "113", "138", "163", "188", "38", "63", 
+                         "88", "200")
+dat$weight <- as.integer(as.character(temp.weight))
+unique(dat$weight)
+lapply(dat[, var_num, with = FALSE], class) # check their class again
+dat[, var_num, with = FALSE] # check the subset of data.table
+
+
+##### variables that look like they should be categorical (i.e. factor in R)
+var_cat <- c("race", "gender", "admission_type_id", "discharge_disposition_id", 
+             "admission_source_id", "payer_code", "medical_specialty", "diag_1",
+             "diag_2", "diag_3", "max_glu_serum", "A1Cresult", "metformin",
+             "repaglinide", "nateglinide", "chlorpropamide", "glimepiride",
+             "glipizide", "glyburide", "tolbutamide", "pioglitazone", 
+             "rosiglitazone", "acarbose", "miglitol", "tolazamide", "insulin",
+             "glyburide.metformin", "change", "diabetesMed")
+lapply(dat[, var_cat, with = FALSE], class) # check their class
+# let's turn them into factors and do some manipulation, THIS LOOP TAKES SOME TIME
+for(j in 1:length(var_cat)) {
+  print(var_cat[j])
+  temp.j <- dat[[var_cat[j]]]
+  table(temp.j) # frequency table
+  temp.j <- as.factor(temp.j)
+  temp.levels <- levels(temp.j)
+  temp.j <- data.frame(temp.j)
+  # convert a factor into dummy matrix using model.matrix
+  # NOTE THAT I SIMPLY TREAT MISSING AS ITS OWN COLUMN
+  temp.j.matrix <- model.matrix(~ temp.j - 1, data = temp.j) 
+  # rename the columns
+  colnames(temp.j.matrix) <- paste0(var_cat[j], "_", temp.levels) 
+  # remove very rare columns
+  temp.j.matrix <- temp.j.matrix[, which(colSums(temp.j.matrix) > 20)] # I used a frequency cutoff of 20
+  # remove the column in dat and replace with a matrix
+  dat[, (var_cat[j]) := NULL]
+  dat <- cbind(dat, temp.j.matrix)
+}
+# check if all columns are numeric or integer
+all(unlist(lapply(dat, class)) %in% c("numeric", "integer"))
+
+
+##### We still have missing values. Now off to dealing with NA's
+# I just use a simple mean imputation for weight
+dat$weight[is.na(dat$weight)] <- mean(dat$weight, na.rm = TRUE)
+
+# Some packages can allow NA's, like xgboost, so imputation is not necessarily needed. 
+# But I want to create a data for general purpose, so that I can be used on all kinds of methods.
+
+# You can sure use fancier imputation methods, like chain imputation (mice package) or random forest imputation
+
+##### get ready for training
+train.label <- as.factor(train.Y)
+levels(train.label) <- c("yes", "no") # this is going to give me prob of "no", by default, caret consider the second class as "event"
+table(train.label)
+
+test.data <- dat[encounter_id %in% test.ID, ]
+train.data <- dat[!(encounter_id %in% test.ID), ]
+train.data$encounter_id <- NULL # no need to include ID for training
+
+train.data <- as.matrix(train.data)
+test.data <- as.matrix(test.data)
+
+dim(train.data) # there are so many features, you may want to do variable selection before fitting a model, I just dump everything in, not the best thing to do
+
+# save.image("cleaned_data.RData") # you can save your effort so far, so that you don't have to reload it next time
+# load("cleaned_data.RData")
+
+# memory.limit()
+memory.limit(size = 100000)
+
+# set up cross validation (this is doing 5 fold CV using )
+# check the options by looking up this function in Help (if you are using RStudio)
+# you can play with these options
+?trainControl
+trcontrol = trainControl(method = "repeatedcv", number = 5, repeats = 1,
+                         returnData = FALSE, classProbs = TRUE,
+                         summaryFunction = twoClassSummary, verboseIter = TRUE)
+
+# # for method = "xgbTree", you can tune these parameters; different methods 
+# # have different tuning parameters.
+
+# # you can set the search of tuning parameters manually
+# man_grid <- expand.grid(eta = c(0.1, 0.3, 0.5),
+#                         max_depth = c(1, 3, 5),
+#                         colsample_bytree = c(0.6, 0.8),
+#                         min_child_weight = 1,
+#                         subsample = c(0.5, 0.75, 1),
+#                         nrounds = 150)
+# nrow(man_grid) # be careful, you may end up with a lot of combinations
+
+# Another option is to use a random sample of possible tuning parameter combinations, 
+# search = "random" in TrainControl
+# This functionality is described on this page.
+# https://topepo.github.io/caret/random-hyperparameter-search.html
+
+##### below a grid-search, cross-validation model in caret
+set.seed(20231116) # set a random seed
+##### xgbTree (it will takes some time, let it run)
+model_xgbTree = train(x = train.data[1:1000, ], # I only used the first 1000 samples, ideally, should use more, but takes longer
+                      y = train.label[1:1000], # I only used the first 1000 samples
+                      method = "xgbTree", # I am using xgbTree method, you can of course use other ML methods
+                      # tuneGrid = man_grid, # I did not specify tuning parameter values, i.e., using default tuning values
+                      trControl = trcontrol, 
+                      metric = "ROC")
+
+
+# you can also plot the model tuning criteria across all tuning set ups
+plot(model_xgbTree)
+
+# you can generate prediction for the training (if you want to assess training error)
+# it is going to automatically use the model with the best tuning performance
+train.xgbTree_PROB <- predict(object = model_xgbTree, train.data, type = "prob")$yes
+print(roc(train.label, train.xgbTree_PROB)$auc) # this step computes training AUC
+plot(roc(train.label, train.xgbTree_PROB)) # plot the AUC curve
+
+# now make prediction on the testing (this is what really matters)
+test.xgbTree_PROB <- predict(object = model_xgbTree, test.data, type = "prob")$yes
+# you do not know the true label for testing, but now you are ready to submit to Kaggle to find out
+
+# prepare in the right format for submission
+# because we created the probability for outcome = "no", we use 1 to subtract the number to get the probability for outcome = "yes"
+submission_xgbTree <- data.frame(encounter_id = test.ID, readmitted = 1 - test.xgbTree_PROB) 
+fwrite(submission_xgbTree, "submission_xgbTree.csv")
+
+
+
+
+
+# you can also check the shapley plot, which gives you a visualization of the 
+# importance of variables in terms of prediction, estimated using a sample data (e.g., test data)
+contr <- predict(model_xgbTree$finalModel, test.data[, -1], predcontrib = TRUE)
+# this gives you individual influence function
+xgb.plot.shap(test.data[, -1], contr, model = model_xgbTree$finalModel, 
+              top_n = 20, n_col = 4)
+# this gives you an overall visualization influence function
+xgb.ggplot.shap.summary(test.data[, -1], contr, model = model_xgbTree$finalModel, 
+                        top_n = 20) # Summary plot
+# p <- xgb.ggplot.shap.summary(test.data[, -1], contr, model = model_xgbTree$finalModel,
+#                              top_n = 20) # Summary plot
+# p + labs(x = "Feature", y = "SHAP value (impact on model output)",
+#          color = "Feature Value")
+
+

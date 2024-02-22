@@ -1,0 +1,6 @@
+"0","coxsnell.r <- act$censor-resid(fit.J1,type=""martingale"")"
+"0",""
+"0","fitres <- survfit(Surv(coxsnell.r, act$censor)~1)"
+"0",""
+"0","plot(fitres$time,-log(fitres$surv),type='s',xlab='Cox-Snell Residuals', "
+"0","     ylab='Estimated Cumulative Hazard Function')"

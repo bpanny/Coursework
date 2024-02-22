@@ -1,0 +1,6 @@
+"0","arrest_scaled <- arrest %>% "
+"0","  mutate(across(everything(), scale))"
+"0","# distance between patients"
+"0","row_distance_scaled = dist(arrest_scaled, method = ""euclidean"")"
+"0","hc.complete_scaled <- hclust(d = row_distance_scaled, method = ""complete"")"
+"0","plot(hc.complete_scaled)"

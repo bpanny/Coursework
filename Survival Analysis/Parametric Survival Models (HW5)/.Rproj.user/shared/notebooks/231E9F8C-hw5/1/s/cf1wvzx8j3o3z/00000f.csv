@@ -1,0 +1,11 @@
+"0","library(tidyverse)"
+"0","library(survival)"
+"0","whas <- read_delim(""whas500.txt"", delim = "" "")"
+"2","[1mRows: [22m[34m500[39m [1mColumns: [22m[34m22[39m"
+"2","[36m──[39m [1mColumn specification[22m [36m───────────────────────────────────────────────────────────────[39m
+[1mDelimiter:[22m "" ""
+[31mchr[39m  (3): admitdate, disdate, fdate
+[32mdbl[39m (19): id, age, sex, hr, sysbp, diasbp, bmi, cvd, afb, sho, chf, av3, miord, mit..."
+"2","
+[36mℹ[39m Use `spec()` to retrieve the full column specification for this data.
+[36mℹ[39m Specify the column types or set `show_col_types = FALSE` to quiet this message."

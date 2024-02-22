@@ -1,0 +1,24 @@
+{
+    "id": "75ABD893",
+    "path": "~/Education/Biostats School/Fall 2023/Applied Survival Analysis/05 - Model Development/coxph_WHAS500_stepwise.R",
+    "project_path": null,
+    "type": "r_source",
+    "hash": "362591042",
+    "contents": "",
+    "dirty": false,
+    "created": 1697463521979.0,
+    "source_on_save": false,
+    "relative_order": 4,
+    "properties": {
+        "source_window_id": "",
+        "Source": "Source"
+    },
+    "folds": "",
+    "lastKnownWriteTime": 1697116115,
+    "encoding": "UTF-8",
+    "collab_server": "",
+    "source_window": "",
+    "last_content_update": 1697116115,
+    "read_only": false,
+    "read_only_alternatives": []
+}

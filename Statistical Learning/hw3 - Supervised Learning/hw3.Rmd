@@ -1,0 +1,367 @@
+---
+title: "hw3"
+author: "Benjamin Panny"
+date: "`r Sys.Date()`"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+
+# Theory
+## In decision trees for classification, 
+
+In decision trees for classification, we need to select an impurity function to determine the best split to construct the tree. Gini index and entropy are two most common choices. In order for them to be a valid impurity function, show that the functions
+
+$$
+\text{Gini index: }\phi(p) = \sum_{k \neq l} p_k \cdot p_l = 1 - \sum_k{p_k}(1 - p_k) \\
+\text{Entropy: }\phi(p) = -\sum_kp_k \cdot \log(p_k) \\
+\text{take the maximum (most impure) value when } p_1=\cdots = p_k = 1/K \\
+\text{take the minimum value when probability concentrate on one of the K classes (most pure)} \\
+\text{you can use }K = 2, (p_1 = p, p_2 = 1-p) \\
+\text{express the indices in terms of p}
+$$
+
+```{r}
+library(tidyverse)
+classes <- tibble(p = seq(0.001, 0.999, by = 0.001), q = 1 - p)
+normalizer <- sum(classes)
+
+get_entropy <- function(p_seq){
+  -sum(p_seq * log*p_seq)
+}
+
+get_entropy2d <- function(p, q){
+  -(p * log (p) + q * log(q))
+}
+
+get_gini2d <- function(p, q){
+  2 * (p * q)
+}
+
+classes %>% 
+  mutate(entropy = get_entropy2d(p, q),
+         log_entropy = log(entropy),) %>% 
+  ggplot(aes(x = p, y = entropy)) +
+  geom_line() +
+  geom_point(size = 3, color = 'green', aes(x = p[which.max(entropy)], y = max(entropy))) +
+  geom_point(size = 3, color = 'red', aes(x = p[which.min(entropy)], y = min(entropy)))
+
+classes %>% 
+    mutate(gini = get_gini2d(p, q),
+           log_gini = log(gini)) %>% 
+    ggplot(aes(x = p, y = gini)) +
+    geom_line() +
+    geom_point(size = 3, color = 'green', aes(x = p[which.max(gini)], y = max(gini))) +
+    geom_point(size = 3, color = 'red', aes(x = p[which.min(gini)], y = min(gini)))
+```
+
+As can be seen in green, the max entropy is at p = 0.5, q = 0.5. As can be seen in red, entropy approaches its minimum as p approach 0 and q approaches 1 and vice-versa. 
+
+$$
+\text{Gini index: }\phi(p) = G(p) = \sum_{k \neq l} p_k \cdot p_l = 1 - \sum_k{p_k}(1 - p_k) \\
+\text{Entropy: }\phi(p) = H(p) = -\sum_kp_k \cdot \log(p_k) \\
+$$
+
+Binary Entropy Maximization.
+
+$$
+\arg\max H(p) \\
+-p(\log(p)) - (1-p)\log(1-p) \\
+dH/dp = -log(p) - p/p +log(1-p) - (1-p)/(1-p)(0-1) \\
+dH/dp = log(1-p) - log(p) = 0 \\
+log(1-p) = log(p) \\
+1-p = p \\
+p = 0.5
+$$
+
+Entropy Maximizing in K dimensions by Impurity
+
+$$
+\arg\max_p H(p) = -\sum_k p_k \cdot \log(p_k) + \lambda\left(\sum_kp_k - 1\right) \\
+dH/dp_i = -log(p_i) - 1 + \lambda = 0 \implies p_i = e^{-1+\lambda} \\
+dH/d\lambda = \sum_kp_k - 1 = 0 \implies \sum_kp_k = 1 \\
+\implies p_i = \frac{e^{-1+\lambda}}{Ke^{-1+\lambda}} = \frac{1}{K}
+$$
+
+Entropy Minimizing in K dimensions by Purity
+
+$$
+\arg\min_p H(p) = -\sum_k p_k \cdot \log(p_k) \\
+\text{Let } p_j = 1 \text{, remembering }H(p) \text{ is non-negative by definition}\\
+H(p) = -\sum_{i=1}^{k} p_i \log(p_i) = -p_j \log(p_j) - \sum_{i \neq j} p_i \log(p_i) = -1 \log(1) - \sum_{i \neq j} 0 \log(0) = 0
+$$
+
+Gini Maximization
+
+$$
+\text{Gini index: }\phi(p) = G(p) = \sum_{k \neq l} p_k \cdot p_l = 1 - \sum_k{p_k}(1 - p_k) \\
+\arg\max_p G(p) = 1 - \sum_k{p_k}(1 - p_k) -\lambda(\sum_kp_k - 1)\\
+dG/dp_i = 0 - 1 + 2p_i - \lambda = 0 \implies p_i = \frac{1+\lambda}{2} \\
+dG/d\lambda = \sum_kp_k - 1 = 0 \implies = \sum_kp_k = 1 \\
+\implies = p_i = \frac{\frac{1+\lambda}{2}}{K\frac{1+\lambda}{2}} = \frac{1}{K}
+$$
+
+Gini Minimization follows the same logic as Entropy minimization.
+
+(5 points)
+
+## Computing
+
+### 2. Question 10 in Chapter 4.7 in ISLR. 
+
+The question should be answered using the Weekly data set, which is part of the ISLR package. This data contains 1,089 weekly returns for 21 years, from the beginning of 1990 to the end of 2010. Write a data analysis report addressing the following problems. (15 points)
+
+(a) Produce some numerical and graphical summaries of the Weekly data. Do there appear to any
+patterns?
+
+```{r, message = F}
+library(ISLR)
+weekly <- Weekly
+weekly %>% summary()
+weekly %>% count(Year)
+weekly %>% GGally::ggpairs(columns = 2:6)
+```
+
+There are some small autocorrelations between the lags. There are roughly 47-52 observations per year from 1990 to 2010. The minimum and maximum for price action is -18 and 12
+
+```{r}
+weekly %>% 
+  ggplot(aes(x = seq(1, nrow(weekly), by = 1), y = cumsum(Today))) +
+  geom_line()
+```
+
+If you invested in this price action in 1990 you'd be doing well, but the 2008 shock might have scared you.
+
+```{r}
+weekly %>% 
+  ggplot(aes(x = Volume, fill = Direction)) +
+  geom_density(alpha = .4)
+weekly %>% 
+  ggplot(aes(x = abs(Today), fill = Direction)) +
+  geom_density(alpha=.4)
+weekly %>% 
+  ggplot(aes(x = Volume, y = Today)) +
+  geom_point()
+```
+
+There is no obvious, if any, relationship between volume and price action for a week Also, there doesn't seem to be much difference in price action or volume and direction for the week. Most weeks are under 5 in terms of price action, with most under 2.5. Most weeks follow a similar pattern for volume.
+
+(b) Use the full data set to perform a logistic regression with Direction as the response and the five lag variables plus Volume as predictors. Use the summary function to print the results. Do any of the predictors appear to be statistically significant? If so, which ones?
+
+```{r}
+
+modb <- weekly %>% 
+  glm(Direction ~ Lag1 + Lag2 + Lag3 + Lag4 + Lag5 + Volume, 
+                       data = .,
+                       family = 'binomial')
+
+summary(modb)
+```
+
+Only Lag2 is a statistically significant predictor. The Lag2 coefficient indicates a 1.05x higher odds of an Up day compared to a Down day for each additional unit increase in the value of Lag2 over the previous unit value.
+
+(c) Compute the confusion matrix and overall fraction of correct predictions. Explain what the confusion matrix is telling you about the types of mistakes made by logistic regression.
+
+```{r}
+cutoff <- .5
+pred_dir <- ifelse(predict(modb, type = 'response') > cutoff, 'Up', 'Down')
+table(pred_dir, ifelse(modb$y == 1, 'Up', 'Down'))
+```
+
+Using a cutoff of 0.5 for the predicted probability, It is clear that the logistic regression model is biased towards predicting "Up" days, regardless of whether the actual day was "Up" or "Down".
+
+(d) Now fit the logistic regression model using a training data period from 1990 to 2008, with Lag2 as the only predictor. Compute the confusion matrix and the overall fraction of correct predictions for the held out data (that is, the data from 2009 and 2010).
+
+```{r}
+weekly_split <- split(weekly, weekly$Year %in% c(2009, 2010))
+weekly_train <- weekly_split$`FALSE`
+weekly_test <- weekly_split$`TRUE`
+mod_glm <- glm(Direction ~ Lag2, family = 'binomial', data = weekly_train)
+
+cutoff <- .5
+pred_test_glm <- ifelse(predict(mod_glm, newdata = weekly_test, type = 'response') > cutoff, 'Up', 'Down')
+table(pred_test_glm, weekly_test$Direction)
+```
+
+The result follows the same pattern as in c).
+
+(e) Repeat (d) using LDA.
+
+```{r}
+library(MASS)
+
+mod_lda <- lda(Direction ~ Lag2, data = weekly_train)
+cutoff <- .5
+# plot(mod_lda)
+
+# predict the probability
+pred_test_lda <- predict(mod_lda, newdata = weekly_test)
+
+
+head(pred_test_lda$x) #linear discriminants of each observation
+head(pred_test_lda$posterior) # matrix whose kth column contains the posterior probability that the corresponding observation belongs to the kth class
+# head(pred_test_lda$class) #classified using a 50% posterior probability cutoff
+
+
+# table(pred_test_lda$class) #predicted outcome
+table(pred_test_lda$class, weekly_test$Direction) #contingency table of predicted (row) and true (column) outcome
+
+```
+
+The same pattern is obtained. as in c) and d)
+
+(f) Repeat (d) using QDA.
+
+```{r}
+qda.fit <- qda(Direction ~ Lag2, data = weekly_train)
+qda.fit
+
+# predict the probability
+pred_test_qda <- predict(qda.fit, newdata = weekly_test)
+head(pred_test_qda$posterior)
+head(pred_test_qda$class)
+
+table(pred_test_qda$class, weekly_test$Direction)
+```
+
+This follows the same pattern in the extreme, as QDA only predicts the "Up" class.
+
+(g) Which of these methods appears to provide the best results on this data?
+
+At a cutoff of 0.5, logistic regression and LDA are indistinguishable in their predictive performance. QDA is worse than logistic regression and LDA because it only predicts Up days, which is useless for decision-making.
+
+(h) Experiment with different combinations of predictors, including possible transformations and interactions, for each of the methods. Report the variables, method, and associated confusion matrix that appears to provide the best results on the held out data.
+
+```{r}
+mod_lda_all <- lda(Direction ~ Lag1 + Lag2 + Lag3 + Lag4 + Lag5 + Volume, data = weekly_train)
+cutoff <- .5
+# plot(mod_lda)
+
+# predict the probability
+pred_test_lda_all <- predict(mod_lda_all, newdata = weekly_test)
+
+
+# head(pred_test_lda_all$x) #linear discriminants of each observation
+# head(pred_test_lda_all$posterior) # matrix whose kth column contains the posterior probability that the corresponding observation belongs to the kth class
+# head(pred_test_lda_all$class) #classified using a 50% posterior probability cutoff
+
+
+# table(pred_test_lda_all$class) #predicted outcome
+table(pred_test_lda_all$class, weekly_test$Direction) #contingency table of predicted (row) and true (column) outcome
+```
+
+Including all covariates degrades accuracy of LDA, but makes its predictions more balanced.
+
+```{r}
+mod_lda_lag <- lda(Direction ~ Lag1 + Lag2 + Lag3 + Lag4 + Lag5, data = weekly_train)
+cutoff <- .5
+# plot(mod_lda)
+
+# predict the probability
+pred_test_lda_lag <- predict(mod_lda_lag, newdata = weekly_test)
+
+
+# head(pred_test_lda_lag$x) #linear discriminants of each observation
+# head(pred_test_lda_lag$posterior) # matrix whose kth column contains the posterior probability that the corresponding observation belongs to the kth class
+# head(pred_test_lda_lag$class) #classified using a 50% posterior probability cutoff
+
+
+# table(pred_test_lda_lag$class) #predicted outcome
+table(pred_test_lda_lag$class, weekly_test$Direction) #contingency table of predicted (row) and true (column) outcome
+```
+
+Removing Volume info restores the accuracy performance but is biased toward Up predictions again.
+
+```{r}
+mod_lda_lag_int <- lda(Direction ~ Lag1*Lag2 + Lag3*Lag4 + Lag5, data = weekly_train)
+cutoff <- .5
+# plot(mod_lda)
+
+# predict the probability
+pred_test_lda_lag_int <- predict(mod_lda_lag_int, newdata = weekly_test)
+
+
+# head(pred_test_lda_lag_int$x) #linear discriminants of each observation
+# head(pred_test_lda_lag_int$posterior) # matrix whose kth column contains the posterior probability that the corresponding observation belongs to the kth class
+# head(pred_test_lda_lag_int$class) #classified using a 50% posterior probability cutoff
+
+
+# table(pred_test_lda_lag_int$class) #predicted outcome
+table(pred_test_lda_lag_int$class, weekly_test$Direction) #contingency table of predicted (row) and true (column) outcome
+```
+
+Adding some random interactions improves accuracy slightly while not really addressing the bias in predicted values.
+
+```{r}
+qda_lag_int <- qda(Direction ~ Lag1*Lag2 + Lag3*Lag4 + Lag1*Lag5, data = weekly_train)
+qda_lag_int
+
+# predict the probability
+pred_test_qda_int <- predict(qda_lag_int, newdata = weekly_test)
+head(pred_test_qda_int$posterior)
+head(pred_test_qda_int$class)
+
+table(pred_test_qda_int$class, weekly_test$Direction)
+```
+
+Following the same strategy of random interactions for LDA degrades the accuracy for QDA yet balances the predictions more.
+
+It is not terribly surprising that interactions between lags don't seem to do much because there is only week correlations, if any, between different lags when viewed jointly.
+
+What happens if we include all interactions with statistically significant correlations?
+
+```{r}
+mod_glm_int_sig <- glm(Direction ~ Lag1*Lag2 + Lag1*Lag4 + Lag2*Lag3 + Lag2*Lag5 + Lag3*Lag4 + Lag3*Lag5 + Lag4*Lag5, family = 'binomial', data = weekly_train)
+
+cutoff <- .5
+pred_test_glm_int_sig <- ifelse(predict(mod_glm_int_sig, newdata = weekly_test, type = 'response') > cutoff, 'Up', 'Down')
+table(pred_test_glm_int_sig, weekly_test$Direction)
+
+mod_lda_lag_int_sig <- lda(Direction ~Lag1*Lag2 + Lag1*Lag4 + Lag2*Lag3 + Lag2*Lag5 + Lag3*Lag4 + Lag3*Lag5 + Lag4*Lag5, data = weekly_train)
+cutoff <- .5
+# plot(mod_lda)
+
+# predict the probability
+pred_test_lda_lag_int_sig <- predict(mod_lda_lag_int_sig, newdata = weekly_test)
+
+
+# head(pred_test_lda_lag_int_sig$x) #linear discriminants of each observation
+# head(pred_test_lda_lag_int_sig$posterior) # matrix whose kth column contains the posterior probability that the corresponding observation belongs to the kth class
+# head(pred_test_lda_lag_int_sig$class) #classified using a 50% posterior probability cutoff
+
+
+# table(pred_test_lda_lag_int_sig$class) #predicted outcome
+table(pred_test_lda_lag_int_sig$class, weekly_test$Direction) #contingency table of predicted (row) and true (column) outcome
+
+
+qda_lag_int_sig <- qda(Direction ~ Lag1*Lag2 + Lag1*Lag4 + Lag2*Lag3 + Lag2*Lag5 + Lag3*Lag4 + Lag3*Lag5 + Lag4*Lag5, data = weekly_train)
+# qda_lag_int_sig
+
+# predict the probability
+pred_test_qda_int_sig <- predict(qda_lag_int_sig, newdata = weekly_test)
+# head(pred_test_qda_int_sig$posterior)
+# head(pred_test_qda_int_sig$class)
+
+table(pred_test_qda_int_sig$class, weekly_test$Direction)
+```
+
+This results in the best performance for QDA and this QDA model is the best performing model overall according to accuracy by the confusion matrix with a cutoff of 0.5
+
+```{r}
+library(pROC) # build a ROC curve
+par(las=F);par(mfrow=c(1,1))
+roc.glm <- roc(weekly_test$Direction, predict(mod_glm_int_sig, newdata = weekly_test, type = 'response'))
+plot(roc.glm,  col=1, print.auc=TRUE,main ="ROC curve -- Logistic Regression")
+
+roc.lda <- roc(weekly_test$Direction, as.numeric(pred_test_lda_lag_int_sig$x))
+plot(roc.lda,  print.auc=TRUE, 
+     col=2,main ="ROC curve -- LDA" )
+
+roc.qda <- roc(weekly_test$Direction, pred_test_qda_int_sig$posterior[,2])
+plot(roc.qda, print.auc=TRUE, col=3,main ="ROC curve -- QDA"  )
+```
+
+I don't think I would trust any of these models with my money.

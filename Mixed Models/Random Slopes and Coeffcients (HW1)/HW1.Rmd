@@ -1,0 +1,166 @@
+---
+title: "HW1"
+author: "Benjamin Panny"
+date: "`r Sys.Date()`"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+# Descriptive Grouped Summary
+
+```{r}
+library(tidyverse)
+cross <- read_csv("Asthma_cross.csv")
+cross %>% group_by(currentcovid) %>% summarise# Load the dplyr package if it's not already loaded
+library(dplyr)
+
+library(dplyr)
+
+summarize_function <- function(data, grouping_var, variable_list) {
+  # Group the data by the 'grouping_var' variable
+  grouped_data <- data %>%
+    group_by({{ grouping_var }})
+  
+  # Create a list of summary statistics for each variable in 'variable_list'
+  summary_list <- lapply(variable_list, function(var) {
+    summarise(grouped_data,
+      Mean = mean(!!sym(var), na.rm = TRUE),
+      Median = median(!!sym(var), na.rm = TRUE),
+      SD = sd(!!sym(var), na.rm = TRUE),
+      Min = min(!!sym(var), na.rm = TRUE),
+      Max = max(!!sym(var), na.rm = TRUE),
+      Count = sum(!!sym(var))
+    ) %>%
+    mutate(Variable = var) # Add the variable name as a new column
+  })
+  
+  # Combine the summary statistics into a single data frame
+  summary_data <- bind_rows(summary_list)
+  
+  return(summary_data)
+}
+
+
+# Example usage:
+# Assuming 'df' is your dataframe, 'group_var' is the grouping variable,
+# and 'variable_list' is a vector of variable names you want to summarize.
+
+cross_summary <- summarize_function(cross, currentcovid, c("patientage", "female", "black", "coexisting", "influenzavaccine", "los"))
+
+cross_summary %>% print()
+cross %>% summarise(sd(patientage))
+```
+
+# Two-Sample T-test
+
+```{r}
+# Function to perform t-tests for multiple variables by group
+perform_t_tests <- function(data, group_var, variables_to_compare) {
+  t_test_results <- lapply(variables_to_compare, function(variable) {
+    t_test_result <- t.test(data[[variable]] ~ data[[group_var]])
+    return(t_test_result)
+  })
+  return(t_test_results)
+}
+
+# List of variables to compare by group
+variables_to_compare <- c("patientage", "los")
+
+# Perform t-tests for each variable by group
+t_test_results <- perform_t_tests(cross, "currentcovid", variables_to_compare)
+
+# Print t-test results
+for (i in seq_along(variables_to_compare)) {
+  cat("T-test for", variables_to_compare[i], ":\n")
+  print(t_test_results[[i]])
+  cat("\n")
+}
+```
+
+# Test of Homogeneity
+
+```{r}
+compare_multiple_homogeneity <- function(data, group_var, outcome_vars) {
+  results <- list()
+  
+  for (outcome_var in outcome_vars) {
+    # Create a contingency table (cross-tabulation) of the outcome variable and grouping variable
+    contingency_table <- table(data[[outcome_var]], data[[group_var]])
+    
+    # Perform a chi-squared test of homogeneity
+    chi_squared_result <- chisq.test(contingency_table)
+    
+    # Store the chi-squared test result in the list with the outcome variable name as the key
+    results[[outcome_var]] <- chi_squared_result
+    
+    # Print the chi-squared test result for each outcome
+    cat("Chi-squared test of homogeneity for", outcome_var, ":\n")
+    print(chi_squared_result)
+    cat("\n")
+  }
+  
+  return(results)
+}
+
+# Example usage:
+# Assuming 'cross' is your dataframe, 'currentcovid' is the grouping variable,
+# and 'outcome_vars' is a vector of outcome variable names you want to compare.
+outcome_vars <- c("female", "black", "coexisting", "influenzavaccine")  # Add your outcome variable names
+results <- compare_multiple_homogeneity(cross, "currentcovid", outcome_vars)
+```
+```{r}
+
+table(cross$currentcovid, cross$female)
+cross %>% count(female, currentcovid)
+```
+
+
+# Test of Independence
+
+```{r}
+compare_multiple_proportions <- function(data, group_var, outcome_vars) {
+  results <- list()
+  
+  for (outcome_var in outcome_vars) {
+    # Create a contingency table (cross-tabulation) of the two categorical variables
+    contingency_table <- table(data[[group_var]], data[[outcome_var]])
+    
+    # Perform a chi-squared test for independence
+    chi_squared_result <- chisq.test(contingency_table)
+    
+    # Store the chi-squared test result in the list with the outcome variable name as the key
+    results[[outcome_var]] <- chi_squared_result
+    
+    # Print the chi-squared test result for each outcome
+    cat("Chi-squared test for", outcome_var, ":\n")
+    print(chi_squared_result)
+    cat("\n")
+  }
+  
+  return(results)
+}
+
+# Example usage:
+# Assuming 'cross' is your dataframe, 'currentcovid' is the grouping variable,
+# and 'outcome_vars' is a vector of outcome variable names you want to compare.
+outcome_vars <- c("female", "black", "coexisting", "influenzavaccine")  # Add your outcome variable names
+results <- compare_multiple_proportions(cross, "currentcovid", outcome_vars)
+```
+
+# Linear Regression
+
+```{r}
+# (los_lm <- lm(log(los) ~ currentcovid + patientage, data = cross)) %>% summary()
+# (los_lm_int <- lm(log(los) ~ currentcovid*patientage, data = cross)) %>% summary()
+step(lm(log(los) ~ . - personid, data = cross), scope = list(upper = ~patientage+currentcovid+coexisting+influenzavaccine+female+black, lower = ~1), direction = "backward")
+step(lm(log(los) ~ patientage+black+currentcovid+coexisting + patientage:black + patientage:currentcovid + patientage:coexisting + black:currentcovid + black:coexisting + currentcovid:coexisting, data = cross), scope = list(upper = ~patientage+black+currentcovid+coexisting + patientage:black + patientage:currentcovid + patientage:coexisting + black:currentcovid + black:coexisting + currentcovid:coexisting, lower = ~patientage+black+currentcovid+coexisting), direction = "backward")
+```
+
+```{r}
+3.137+.356+.028*7- .356
+exp(3.689 - .356)
+```
+

@@ -1,0 +1,492 @@
+---
+title: "HW1"
+author: "Benjamin Panny"
+date: "`r Sys.Date()`"
+output: 
+  html_document:
+    toc: true
+    toc_float: true
+    collapsed: false
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+# Theory
+
+## Derive the solutions of OLS and ridge regression:
+
+### Prove OLS estimator formula
+
+a. In OLS, we derive
+
+$$
+\min_{\beta} (Y - X \beta)^T(Y-X \beta)
+$$
+
+which is the sum of squared residuals.
+
+Prove
+
+$$
+\hat{\beta}^{OLS} = (X^TX)^{-1}X^TY
+$$
+
+hint, for given A: 
+
+$$
+\frac{d}{d\beta}(A\beta) = A \\
+\frac{d}{d\beta}(\beta^TA\beta) = 2A\beta
+$$
+
+$$
+\begin{align*}
+e^Te &= (Y - X \hat\beta)^T(Y-X \hat\beta) \\
+&= (-\hat\beta^TX^T + Y^T) (Y-X \hat\beta) \\
+&= -\hat{\beta}^TX^TY + \hat{\beta}^TX^TX\hat\beta + Y^TY - Y^TX\hat\beta \\
+& = -2\hat\beta^TX^TY + \hat{\beta}^TX^TX\hat\beta + Y^TY \\
+\frac{de^Te}{d\hat\beta} &= -2X^TY + 2X^TX\hat\beta \\
+& -> \text{set to 0} \\
+2X^TY &= 2X^TX\hat\beta \\
+X^TY &= X^TX\hat\beta \\
+(X^TX)^{-1}X^TX\hat\beta &= (X^TX)^{-1}X^TY \\
+I\hat\beta &= (X^TX)^{-1}X^TY \\
+\hat\beta &= (X^TX)^{-1}X^TY \\
+\end{align*}
+$$
+
+### Prove Ridge Regression Estimator Formula
+
+b. In ridge regression, we aim on 
+
+$$
+\min_{\beta} (Y - X \beta)^T(Y-X \beta) + \lambda\beta^T\beta
+$$
+
+which is the sum of squared residuals.
+
+Prove
+
+$$
+\hat{\beta}^{ridge} = (X^TX + \lambda I)^{-1}X^TY
+$$
+
+$$
+\begin{align*}
+e^Te &= (Y - X \hat\beta)^T(Y-X \hat\beta) + \lambda\hat\beta^T\hat\beta \\
+&= (-\hat\beta^TX^T + Y^T) (Y-X \hat\beta) + \lambda\hat\beta^T\hat\beta \\
+&= -\hat{\beta}^TX^TY + \hat{\beta}^TX^TX\hat\beta + Y^TY - Y^TX\hat\beta + \lambda\hat\beta^T\hat\beta \\
+& = -2\hat\beta^TX^TY + \hat{\beta}^TX^TX\hat\beta + Y^TY + \lambda\hat\beta^T\hat\beta \\
+\frac{de^Te}{d\hat\beta} &= -2X^TY + 2X^TX\hat\beta + 2\lambda\hat\beta\\
+& -> \text{set to 0} \\
+2X^TY &= 2X^TX\hat\beta + 2\lambda\hat\beta\\
+X^TY &= X^TX\hat\beta + \lambda\hat\beta\\
+X^TY &= (X^TX + I\lambda)\hat\beta\\
+(X^TX + I\lambda)^{-1}(X^TX + I\lambda)\hat\beta &= (X^TX + I\lambda)^{-1}X^TY \\
+I\hat\beta &= (X^TX + I\lambda)^{-1}X^TY \\
+\hat\beta &= (X^TX + I\lambda)^{-1}X^TY \\
+\end{align*}
+$$
+
+### Prove OLS is scale invariant but ridge regressions is not
+
+Scale invariant means that changing the scale of X does not change the prediction
+
+In both Ridge and OLS, beta adjusts for the scaled X by minimizing the prediction error. However, in Ridge, large Betas are penalized because they increase the value of a function we intend to minimize. This penalization is not sensitive to the scale of X because lambda is not scaled in accordance with it. Therefore, we wind up with different beta estimates due to the Ridge beta^2 penalty
+
+$$
+\min_{\beta} (Y - X \beta)^T(Y-X \beta) + \lambda\beta^T\beta
+$$
+
+$$
+\hat\beta = (X^TX + I\lambda)^{-1}X^TY
+$$
+
+$$
+\min_{\beta} (Y - X \beta)^T(Y-X \beta)
+$$
+
+$$
+\hat\beta = (X^TX)^{-1}X^TY
+$$
+
+## Prove relationship between Ridge, OLS, Lasso
+
+X is an orthogonal matrix (i.e. the predictors are uncorrelated: Covariance = 0), prove
+
+$$
+\hat\beta_j^{ridge} = \frac{\hat\beta_j^{OLS}}{1 - \lambda} \\
+\hat\beta_j^{lasso} = sign(\hat\beta_j^{OLS})(\mid\hat\beta_j^{OLS}\mid - \lambda/2)_+ \\
+x_+ = 0 \text{ if } x\lt0 \text{, and } x_+ = x \text{ if } x \geq 0
+$$
+
+Properties of orthogonal matrix:
+
+$$
+X^TX = XX^T = I \\
+X^T = X^{ -1}
+$$
+
+$$
+\hat\beta_j^{OLS} = (X^TX)^{-1}X^TY = (I)^{-1}X^TY = X^TY\\
+\hat\beta_j^{ridge} = (X^TX + I\lambda)^{-1}X^TY = (I + I\lambda)^{-1}X^TY = (I + I\lambda)^{-1}\hat\beta_j^{OLS}
+$$
+
+Proves part 2a.
+
+$$
+\hat\beta_j^{lasso} = sign(\hat\beta_j^{OLS})(\mid\hat\beta_j^{OLS}\mid - \lambda/2)_+ \\
+
+x_+ = 0 \text{ if } x\lt0 \text{, and } x_+ = x \text{ if } x \geq 0
+$$
+
+
+$$
+\hat\beta_j^{lasso} = sign(X^TY)(\mid X^TY\mid - \lambda/2)_+ \\
+\hat\beta_j^{lasso} = \min_{\beta} (Y - X \beta)^T(Y-X \beta),\\ 
+s.t. \sum_{j=1}^p \mid \beta_j \mid \leq s \\
+$$
+
+We can solve for the coefficient given three different scenarios
+
+$$
+\hat\beta_j^{lasso} = \min_{\beta} (Y - X \beta)^T(Y-X \beta) + \lambda \mid\beta\mid \\
+e^Te = -2\hat\beta^TX^TY + \hat{\beta}^T\hat\beta + Y^TY + \lambda\mid\hat\beta\mid \\
+\text{when } \beta \text{ is positive} \\
+\frac{de^Te}{d\hat\beta} = -2X^TY + 2\hat\beta + \lambda \\
+-> \text{set to 0} \\
+2X^TY - \lambda = 2\hat\beta \\
+X^TY - \lambda/2 = \hat\beta \\
+\text{when } \beta \text{ is negative} \\
+\frac{de^Te}{d\hat\beta} = -2X^TY + 2\hat\beta - \lambda \\
+-> \text{set to 0} \\
+2X^TY + \lambda = 2\hat\beta \\
+X^TY + \lambda/2 = \hat\beta \\
+\text{when } \beta \text{ is zero} \\
+\frac{de^Te}{d\hat\beta} = \hat\beta = 0\\
+$$
+
+
+These three scenarios are accomplished by the single, given equation:
+
+$$
+\hat\beta_j^{lasso} = sign(X^TY)(\mid X^TY\mid - \lambda/2)_+ \\
+$$
+
+
+
+# Computation
+
+## Part 1, Carseats data set
+
+This question is modified from Question 10 in Chapter 3.7 in ISLR. This question should be answered using the Carseats data set from the R package ISLR. (7 points)
+
+```{r}
+library(ISLR)
+library(tidyverse)
+cars <- Carseats
+cars %>% glimpse
+```
+
+### Multiple Regression Model
+
+(a) Fit a multiple regression model to predict Sales using Price, Urban, and US.
+
+```{r}
+glm1 <- cars %>% glm(Sales ~ Price + Urban + US, data = .)
+glm1_sum <- summary(glm1)
+glm1_sum
+```
+
+(b) Provide an interpretation of each coefficient in the model. Be careful—some of the variables in the
+model are qualitative!
+
+The dataset is 400 observations on 11 variables, in this model. Sales is the Unit sales (in thousands) at each location of child car seats. Price is the price company charges for car seats at each site. Urban is a factor indicating whether a store is in a urban or rural location. US is a factor with levels indicating whether the store is in the US or not.
+
+Quantitative vars: Price - Qualitative vars: UrbanYes, USYes
+
+The intercept coefficient is the average sales of the carseat outside of urban areas, outside of the US, and when the Price is equal to 0. It is equal to 13.04 (thousand), which is significantly different from zero. However, this would be more interpretable if the price variable were centered and/or normalized, because then the intercept would give the price in rural, non-US areas at the centered (e.g., average) price.
+
+The price coefficient is significantly different form zero, indicating that each unit increase in price is associated with a 0.054 (thousand (aka 54 units)) lower sales on average, holding the other covariates constant.
+
+The Urban indicator coefficient, is not statistically significantly different from zero, indicating no relationship between Urban neighborhood and rural neighborhoods, holding the other covariates constant.
+
+The US indicator coefficient is statistically significantly different from zero, indicating that location in the US is associated with a 1.2 (thousand) higher sales count on average compared to location outside of the US, holding other covariates constant. 
+
+(c) Write out the model in equation form, being careful to handle the qualitative variables properly.
+
+$$
+\begin{align*}
+Y &= X\beta + \epsilon \\
+&= \beta_0 + \beta_{price}x_{price} + \beta_{urban}x_{urban} + \beta_{US}x_{US} + \epsilon
+\end{align*}
+$$
+
+(d) For which of the predictors can you reject the null hypothesis 𝐻𝐻0: 𝛽𝛽𝑗𝑗 = 0?
+
+For the price and US covariates, I can reject the null hypothesis that their beta coefficients are zero because their corresponding T-statistics are significantly unlikely to be drawn from the null T-distribution. (p < 0.05)
+
+(e) On the basis of your response to the previous question, fit a smaller model that only uses the predictors for which there is evidence of association with the outcome.
+
+```{r}
+glm2 <- cars %>% glm(Sales ~ Price + US, data = .)
+glm2_sum <- summary(glm2)
+glm2_sum
+```
+
+(f) How well do the models in (a) and (e) fit the data?
+
+The models have multiple and adjusted R-squareds that are virtually equal. A multiple R-squared of .2393 is fairly low, indicating almost 4/5ths of the variance in the outcome is unaccounted for. 
+
+```{r}
+anova(glm2, glm1)
+```
+
+There is no statistically significant evidence taht the model with the urban covariate performs any better than the simpler model.
+
+(g) Using the model from (e), obtain 95% confidence intervals for the coefficient(s).
+
+The confidence intervals are:
+
+```{r}
+confint(glm2)
+```
+
+Indicating that if we follow these same procedures again and again, then 95% of the time we will capture the true regression coefficients in the interval, and on this particular time none of our intervals contain zero. 
+
+(h) Using the leave-one-out cross-validation and 5-fold cross-validation techniques to compare the performance of models in (a) and (e). What can you tell from (f) and (h)?
+
+```{r}
+library(caret) 
+lmControl_5k <- trainControl(method = "repeatedcv",
+                             number = 5,
+                             repeats = 5)
+
+lmControl_loo <- trainControl(method = "LOOCV")
+
+lm2_5k <- train(formula(glm2), 
+                 data = cars, 
+                 method = "lm", 
+                 trControl = lmControl_5k)
+
+lm2_loo <- train(formula(glm2), 
+                 data = cars, 
+                 method = "lm", 
+                 trControl = lmControl_loo)
+
+lm1_5k <- train(formula(glm1), 
+                data = cars, 
+                method = "lm", 
+                trControl = lmControl_5k)
+
+lm1_loo <- train(formula(glm1), 
+                 data = cars, 
+                 method = "lm", 
+                 trControl = lmControl_loo)
+```
+
+```{r}
+resamps <- resamples(list(lm1_5k = lm1_5k,
+                          lm2_5k = lm2_5k))
+
+summary(resamps)
+summary(lm1_loo);  summary(lm2_loo)
+dotplot(resamps)
+```
+
+Using cross-validation yields the same results as in comparing the models fit on the entire dataset. Cross-validation merely identifies the fact that the models can have different ranges in their performance metrics, such as their RMSE, and that on average they perform mostly the same. The same goes for LOOCV. The plots illustrate that the 95% confidence intervals around the performance metrics largely overlap for the two models, so it makes sense to go with the simpler model.
+
+## Part 2. Prostate data
+
+This question pertains to a prostate microarray dataset. You can access it by load(“prostate.Rdata”). It has been preprocessed to have 210 gene and 235 samples. Lpsa value is the clinical outcome we want to predict. (5 points)
+
+### Split dataset
+
+(a) Randomly divide the data into one training dataset and one testing dataset (1:1).
+
+```{r}
+load('prostate.Rdata')
+prostate <- data; rm(data)
+prostate$x %>% dim
+prostate$y  %>% length()
+```
+
+There are 235 samples of 210 genes and an associated Lpsa value. 
+
+```{r}
+p_tbl <- as_tibble(prostate$x) %>% 
+  mutate(lpsa = prostate$y)
+trainIndex <- createDataPartition(p_tbl$lpsa, p = .5, 
+                                  list = FALSE, 
+                                  times = 1)
+p_tbl_train <- p_tbl[trainIndex,]
+p_tbl_test <- p_tbl[-trainIndex,]
+```
+
+
+### OLS Model
+
+(b) Fit a linear model using OLS on the training dataset and calculate the test error in terms of RMSE.
+Report any problems you encountered.
+
+$$
+\hat{\beta}^{OLS} = (X^TX)^{-1}X^TY
+$$
+
+```{r, error=TRUE}
+ols_estimates <- function(X, Y){
+  solve(t(X)%*%X)%*%t(X)%*%Y
+}
+
+train_matrix <- as.matrix(p_tbl_train)
+# 211 is the lpsa column
+train_X <- train_matrix[,-211]
+train_Y <- train_matrix[,211]
+train_beta_ols <- ols_estimates(train_X, train_Y)
+```
+
+The system is computationally singular, meaning that at least two of the covariates are so highly correlated that their beta coefficients are unidentifiable. The determinant of the matrix must also be zero, since this is a necessary/sufficient condition for the matrix to be uninvertible, which is necessary for obtaining the OLS estimates. This can be circumvented by removing covariates with high correlation. Uncertainty around coefficients starts to skyrocket at $\rho = .8$ so I will use this for my cutoff at first.
+
+```{r}
+train_cor <- cor(train_X)
+
+train_cor[upper.tri(train_cor)] <- 0
+diag(train_cor) <- 0
+
+train_X_pruned <- train_X[, !apply(train_cor, 2, function(x) any(abs(x) > 0.8))]
+train_X_pruned %>% dim()
+```
+
+149/210 (71%) covariates remain after this correlation threshold pruning. I will continue this procedure until I don't encounter singularities.
+
+```{r, error=TRUE}
+train_beta_ols <- ols_estimates(train_X_pruned, train_Y)
+```
+
+```{r}
+train_X_pruned <- train_X[, !apply(train_cor, 2, function(x) any(abs(x) > 0.7))]
+train_X_pruned %>% dim()
+train_beta_ols <- ols_estimates(train_X_pruned, train_Y)
+```
+
+A cutoff of .7 (with 79/210 or 37.6% covariates) relieves the computational singularity error.
+
+We then use the remaining covariates to filter those in the testing dataset, since we can only make predictions with those covariates used to train our model.
+
+```{r}
+train_X_pruned_covs <- colnames(train_X_pruned)
+test_matrix <- as.matrix(p_tbl_test)
+test_X_pruned <- test_matrix[,train_X_pruned_covs]
+test_X <- test_matrix[,-211]
+test_Y <- test_matrix[,211]
+pred_vector <- test_X_pruned%*%train_beta_ols
+```
+
+```{r}
+calc_rmse <- function(y, pred_y){
+  sqrt( sum( (pred_y - y)^2 ) / length(y) )
+}
+
+(ols_rmse <- calc_rmse(test_Y, pred_vector))
+```
+### Ridge Model
+
+(c) Use ridge regression. Find the optimal lambda which will return the smallest cross validation error using the training data.
+
+I know it says cross-validation, but I am using repeated cross-validation for fun.
+
+```{r}
+ridgeControl <- trainControl(method = 'repeatedcv', 
+                           number = 10,
+                           repeats = 10)
+
+tuneRidge <- expand.grid(alpha = 0, lambda = seq(.0001,1,by=0.001))
+
+ridge1 <- train(lpsa ~ ., 
+                data = p_tbl_train,
+                method = "glmnet", 
+                trControl = ridgeControl, 
+                tuneGrid = tuneRidge)
+
+ridge2 <- train(lpsa ~ ., 
+                data = p_tbl_train[,c(train_X_pruned_covs,'lpsa')], 
+                method = "glmnet", 
+                trControl = ridgeControl, 
+                tuneGrid = tuneRidge)
+
+plot(ridge1);plot(ridge2)
+ridge1$bestTune;ridge2$bestTune
+```
+
+These results are interesting. It appears that when using the full dataset, any regularization parameter in the range of 0.0001 and 1 is equally good, while in the pruned training dataset, regularization needs to be kicked up in order to achieve a similar RMSE. While the average RMSE is just slightly better in ridge2, I will use the Ridge model in the full training dataset, since Ridge handles the pruning for me, and thus may be more sensitive to which covariates help and may generalize better in the test set. This corresponds to a lambda of 0.9991
+
+### Optimal Ridge Model from Scratch
+
+(d) Build the ridge regression model using the training data and the lambda in (c) and then predict test
+error in terms of RMSE.
+
+$$
+\hat{\beta}^{ridge} = (X^TX + \lambda I)^{-1}X^TY
+$$
+
+```{r}
+ridge_estimates <- function(X, Y, lambda){
+  solve(t(X)%*%X + lambda * diag(nrow=ncol(X)))%*%t(X)%*%Y
+}
+
+train_beta_ridge <- ridge_estimates(train_X, train_Y, lambda=0.9991)
+
+ridge_preds <- test_X %*% train_beta_ridge
+
+ridge_rmse <- calc_rmse(y = test_Y, pred_y = ridge_preds)
+
+ridge_rmse
+```
+
+The Ridge Test RMSE is better than the pruned OLS Test RMSE.
+
+### Lasso Model
+
+
+(e) Repeat steps in (c) and (d) using lasso. Derive the RMSE in the testing dataset.
+
+I am using repeated CV again for fun.
+
+```{r}
+lassoControl <- trainControl(method = 'repeatedcv', 
+                             number = 10,
+                             repeats = 10)
+
+tunelasso <- expand.grid(alpha = 1, lambda = seq(.0001,1,by=0.001))
+
+lasso1 <- train(lpsa ~ ., 
+                data = p_tbl_train,
+                method = "glmnet", 
+                trControl = lassoControl, 
+                tuneGrid = tunelasso)
+
+lasso2 <- train(lpsa ~ ., 
+                data = p_tbl_train[,c(train_X_pruned_covs,'lpsa')], 
+                method = "glmnet", 
+                trControl = lassoControl, 
+                tuneGrid = tunelasso)
+
+plot(lasso1);plot(lasso2);
+lasso1$bestTune;lasso2$bestTune
+```
+
+```{r}
+lasso_pred_y <- predict(lasso1, newdata=test_X)
+lasso_rmse <- calc_rmse(y=test_Y, pred_y=lasso_pred_y)
+```
+
+```{r}
+tibble(beta_type = c("OLS", "Ridge", "Lasso"),
+       rmse = c(ols_rmse, ridge_rmse, lasso_rmse)) %>% 
+  kableExtra::kable() %>% kableExtra::kable_styling()
+```
+
+It is clear that the Lasso regularized model has the best Test set performance in terms of RMSE.
+
+

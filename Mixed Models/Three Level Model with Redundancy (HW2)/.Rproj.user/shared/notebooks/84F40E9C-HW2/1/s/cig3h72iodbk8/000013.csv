@@ -1,0 +1,5 @@
+"0",""
+"0","missing_egfr %>% "
+"0","  left_join(avg_egfr, by = c(""surgery"", ""time"")) %>% "
+"0","  ggplot(aes(x = prop_missing, y = avg, color = factor(surgery)))+"
+"0","  geom_point()"

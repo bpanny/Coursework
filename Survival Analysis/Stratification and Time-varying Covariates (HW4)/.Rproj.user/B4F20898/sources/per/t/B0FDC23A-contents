@@ -1,0 +1,19 @@
+
+setwd("C:\\Users\\yingding\\Desktop\\Biost2066\\Codes")
+# read in WHAS500 data
+whas500 <- read.table("whas500.dat", as.is=T)
+names(whas500)<-c("id","age","gender","hr","sysbp","diasbp",
+                  "bmi","cvd","afb","sho","chf","av3","miord",
+                  "mitype","year","admitdate","disdate","fdate",
+                  "los","dstat","lenfol","fstat")
+
+library(survival)
+library(My.stepwise)
+
+my.variable.list <- c("age","gender","hr","sysbp","diasbp","bmi","cvd","afb","chf","miord","mitype")
+
+coxph.sw <- My.stepwise.coxph(Time = "lenfol", Status = "fstat", variable.list = my.variable.list,
+                  sle = 0.25, sls = 0.15, data = whas500)
+
+library(BeSS)
+?bess

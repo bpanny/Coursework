@@ -1,0 +1,2 @@
+"0",""
+"0","alr_plot_leverage(glm_2, x = ""predicted"") + alr_plot_cookd(glm_2, x = ""predicted"")"

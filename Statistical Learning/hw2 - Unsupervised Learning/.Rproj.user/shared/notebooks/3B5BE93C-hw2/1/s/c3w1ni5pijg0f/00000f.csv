@@ -1,0 +1,2 @@
+"0","pctbl <- tibble(pc1 = pca1, pc2 = pca2, state = rownames(arrest))"
+"0","pctbl %>% ggplot(aes(x = pc1, y = pc2, label = state)) + geom_text()"

@@ -1,0 +1,7 @@
+"0","haz %>%"
+"0","  mutate(ses = if_else(ses == 0, ""Low"", ""High"")) %>%"
+"0","  ggplot(aes(x = as.factor(visit), y = haz, fill = as.factor(ses))) +"
+"0","  geom_boxplot() +"
+"0","  labs(title = ""Boxplot of Height-to-Age Z-Score per Visit per SES Status"",x = ""Visit / Age (Months)"", y = ""Height-to-age Z-score"") +"
+"0","  labs(fill = ""SES"") +"
+"0","  theme_classic()"

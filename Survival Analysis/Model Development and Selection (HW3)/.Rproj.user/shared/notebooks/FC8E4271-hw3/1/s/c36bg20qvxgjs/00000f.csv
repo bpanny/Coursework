@@ -1,0 +1,5 @@
+"0","bmi.num<-as.numeric(whas$bmi)"
+"0",""
+"0","low.lim<-cox.fit.4$coef[1]+cox.fit.4$coef[3]*bmi.num-1.96*sqrt(cox.fit.4$var[1,1]+cox.fit.4$var[3,3]*bmi.num^2+2*bmi.num*cox.fit.4$var[1,3])"
+"0","high.lim<-cox.fit.4$coef[1]+cox.fit.4$coef[3]*bmi.num+1.96*sqrt(cox.fit.4$var[1,1]+cox.fit.4$var[3,3]*bmi.num^2+2*bmi.num*cox.fit.4$var[1,3])"
+"0","plot(bmi.num,cox.fit.4$coef[1]+cox.fit.4$coef[3]*bmi.num,ylim=c(-2,2),xlab=""bmi"",ylab=""Estimated Log-Hazard Ratio"",type=""l"",lty=1,lwd=2,)"

@@ -1,0 +1,205 @@
+---
+title: "HW3 - Applied Survival Analysis "
+author: "Benjamin Panny"
+date: "`r Sys.Date()`"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+library(tidyverse)
+library(survival)
+library(VIM); library(mice)
+whas <- read_delim("whas500.txt", delim = " ")
+```
+
+For this problem, use the WHAS500 data with non-missing values for sex (the primary covariate of interest) and bmi. Use length of follow-up as the survival time variable, and status at last follow-up as the censoring variable.
+
+```{r}
+whas %>% md.pattern()
+```
+
+
+```{r}
+whas %>% glimpse
+```
+
+
+a. Fit the proportional hazards model containing sex and estimate the hazard ratio (between two sex groups), pointwise and confidence interval.
+
+```{r}
+cox.fit.1<-coxph(Surv(lenfol,fstat)~sex, data=whas)
+cox.fit.1 %>% summary
+```
+
+
+
+The hazard ratio between the two sex groups is 1.4645. That is, when the value of sex == 1 instead of 0, the hazard rate is ~46.5% higher on average.
+
+The 95% confidence interval for the hazard ratio is
+
+```{r}
+exp(confint(cox.fit.1))
+```
+
+If we follow the same procedures, our constructed 95% confidence interval will capture the true hazard ratio for sex==1 vs. sex==0 95% of the time
+
+b. Add bmi to the model fit. Is bmi a confounder of the effect of sex? Explain the reasons for your answer.
+
+```{r}
+cox.fit.2<-coxph(Surv(lenfol,fstat)~sex+bmi, data=whas)
+cox.fit.2 %>% summary
+```
+
+```{r}
+cox.fit.3<-coxph(Surv(lenfol,fstat)~bmi, data=whas)
+cox.fit.3 %>% summary
+```
+
+```{r}
+lm(bmi ~ sex, data = whas) %>% summary
+```
+
+I believe BMI is a confounder of sex because it is significantly related to both the time-to-outcome and sex, and it also alters the estimate of the hazard ratio for the sex groups when included in the same model.
+
+```{r}
+(.381-.218)/.218*100
+```
+
+The crude estimate for sex is about 75% larger than the adjusted estimate for sex when BMI is included
+
+c. Estimate the bmi-adjusted hazard ratio (between two sex groups), pointwise and confidence interval. 
+
+```{r}
+cox.fit.2 %>% summary
+whas %>% summarise(mean_bmi=mean(bmi))
+```
+
+The BMI-adjusted hazard ratios between the two sexes is 1.248, with a 95% confidence interval of (.94, 1.64). Clearly, including BMI in the model has shifted the effect of sex towards the null hypothesis of zero effect on hazard rates.
+
+
+d. Is there a significant interaction between bmi and sex? Justify your answer.
+
+
+```{r}
+cox.fit.4<-coxph(Surv(lenfol,fstat)~sex*bmi, data=whas)
+cox.fit.4 %>% summary
+```
+
+There is not a statistically significant interaction effect, given the Wald Test Statistic we observe for the interaction coefficient with a p > 0.05
+
+```{r}
+anova(cox.fit.2, cox.fit.4)
+```
+
+This is reiterated by the partial log likelihood ratio test
+
+e. Explain why the main effect coefficients for sex in the models fit in 1(b) and 1(d) are different.
+
+The main effect coefficients are different between the models for 1(b) and 1(d) because in 1(d), the main effect coefficient now represents the hazard ratio for the two sexes when BMI is 0. 
+
+As can be seen here, 
+
+```{r}
+exp(-.801+0*-.117+.04*0)/exp(0*-.117)
+```
+
+However, it can also be seen that the hazard ratio represented by the main effect coefficient in 1(b) can be recovered if we set BMI to a plausible value, such as its rounded average.
+
+```{r}
+exp(-.801+26*-.117+.04*26)/exp(26*-.117)
+```
+
+which is very close the main effect term in 1(b)
+
+f. Using the interaction model fitted in 1(d), plot the estimated hazard ratio between two sex groups with confidence limits (upper and lower) as a function of bmi.
+
+```{r}
+cox.fit.4$coef[1]
+```
+
+
+```{r}
+bmi.num<-as.numeric(whas$bmi)
+
+low.lim<-cox.fit.4$coef[1]+cox.fit.4$coef[3]*bmi.num-1.96*sqrt(cox.fit.4$var[1,1]+cox.fit.4$var[3,3]*bmi.num^2+2*bmi.num*cox.fit.4$var[1,3])
+high.lim<-cox.fit.4$coef[1]+cox.fit.4$coef[3]*bmi.num+1.96*sqrt(cox.fit.4$var[1,1]+cox.fit.4$var[3,3]*bmi.num^2+2*bmi.num*cox.fit.4$var[1,3])
+plot(bmi.num,cox.fit.4$coef[1]+cox.fit.4$coef[3]*bmi.num,ylim=c(-2,2),xlab="bmi",ylab="Estimated Log-Hazard Ratio",type="l",lty=1,lwd=2,)
+lines(bmi.num[order(bmi.num)],low.lim[order(bmi.num)],lty=2)
+lines(bmi.num[order(bmi.num)],high.lim[order(bmi.num)],lty=2)
+abline(h=0,lty=3)
+title(main="Interaction (Effect Modifier) Plot (WHAS data)",cex.main=1.5)
+```
+
+```{r}
+
+low.lim<-exp(cox.fit.4$coef[1]+cox.fit.4$coef[3]*bmi.num-1.96*sqrt(cox.fit.4$var[1,1]+cox.fit.4$var[3,3]*bmi.num^2+2*bmi.num*cox.fit.4$var[1,3]))
+high.lim<-exp(cox.fit.4$coef[1]+cox.fit.4$coef[3]*bmi.num+1.96*sqrt(cox.fit.4$var[1,1]+cox.fit.4$var[3,3]*bmi.num^2+2*bmi.num*cox.fit.4$var[1,3]))
+plot(bmi.num[order(bmi.num)],exp(cox.fit.4$coef[1]+cox.fit.4$coef[3]*bmi.num)[order(bmi.num)],ylim=c(0,4),xlab="bmi",ylab="Estimated Hazard Ratio", type = "l", lwd=2)
+lines(bmi.num[order(bmi.num)],low.lim[order(bmi.num)],lty=2)
+lines(bmi.num[order(bmi.num)],high.lim[order(bmi.num)],lty=2)
+abline(h=1,lty=3)
+title(main="Interaction (Effect Modifier) Plot (WHAS data)",cex.main=1.5)
+```
+
+As can be seen from the plots, the hazard ratio between the sexes increases as bmi increases. However, after about bmi = 25, the confidence interval expands rapidly to cover a very large interval.
+
+g. Using the interaction model fit in 1(d), estimate the hazard ratio, pointwise, and confidence interval for a 5kg/m2 increase in bmi for each sex group.
+
+The hazard ratio for a 5kg/m2 increase in bmi for each sex group is the change in hazard rate with a change in bmi given male or female. 
+
+```{r}
+coefs_4 <- cox.fit.4$coef
+exp(coefs_4[1]+5*coefs_4[2]+5*coefs_4[3])/exp(coefs_4[1]+0*coefs_4[2]+0*coefs_4[3]) %>% as.vector
+```
+
+The hazard ratio for a 5kg/m2 increase in BMI for sex == 1 is 0.683 with a 95% confidence interval of (0.646, 0.721), calculated below
+
+```{r}
+covs <- vcov(cox.fit.4)
+se_full <- sqrt(covs[2,2] + covs[3,3] + 2*covs[2,3])
+as.vector(c(exp((coefs_4[2]+coefs_4[3])*5)-1.96*se_full, exp((coefs_4[2]+coefs_4[3])*5)+1.96*se_full))
+```
+
+```{r}
+exp(5*coefs_4[2])/exp(0*coefs_4[2])
+```
+
+The hazard ratio for a 5kg/m2 increase in BMI for sex == 0 is 0.556, with a 95% confidence interval of (0.511, 0.602), calculated below.
+
+```{r}
+as.vector(c(exp((coefs_4[2])*5)-1.96*sqrt(covs[2,2]), exp((coefs_4[2])*5)+1.96*sqrt(covs[2,2])))
+```
+
+
+Both of these ratios indicate, given a fixed sex category, a lower hazard rate on average with each 5 unit increase in bmi. 
+
+
+```{r}
+exp(cox.fit.4$coef[1]+cox.fit.4$coef[3]*bmi.num-1.96*sqrt(cox.fit.4$var[1,1]+cox.fit.4$var[3,3]*bmi.num^2+2*bmi.num*cox.fit.4$var[1,3])) %>% head
+```
+
+
+h. Using the interaction model fitted in 1(d), compute and then graph the estimated survival functions for males and females with a bmi of 25 kg/m2. 
+
+```{r}
+whas_for_st <- whas %>% mutate(bmi_25 = bmi - 25)
+cox.fit.5<-coxph(Surv(lenfol,fstat)~sex*bmi_25, data=whas_for_st)
+coefs_5 <- coef(cox.fit.5)
+```
+
+
+```{r}
+test.c<-basehaz(cox.fit.5,centered=F)
+
+base.surv.fit<-exp(-test.c$hazard)
+sex.surv.0.fit<-base.surv.fit
+sex.surv.1.fit<-base.surv.fit^exp(coefs_5[1])
+
+plot(test.c$time,sex.surv.0.fit,type="l",lty=1,col=3,ylim=c(0,1),ylab=c("Covariate Adjusted Survival Function"),xlab=c("Time (Days)"))
+lines(test.c$time,sex.surv.1.fit,type="l",lty=3,col=6,lwd=2)
+title(main=list("Survival Function Estimates from Cox Model \n (BMI centered at 25)",cex=1))
+legend(x=10,y=0.22,c("Sex == 0","Sex == 1"),lty=c(1,3),col=c(3,6),lwd=2)
+```
+
+The survival function for Sex == 1 has a similar shape to the function for when Sex == 0. However, the function for Sex == 1 seems to decrease more quickly at the beginning, a "lead" which it holds until the latest follow-up timepoint.

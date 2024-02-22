@@ -1,0 +1,66 @@
+
+setwd("C:\\Users\\yingding\\OneDrive - University of Pittsburgh\\Biost2066\\Codes")
+
+# read in data
+temp<-read.table("gbcs.dat", as.is=T)
+names(temp)<-c("id","diagdate","recdate","deathdate","age","menopause",
+               "hormone","size","grade","nodes","prog_recp","estrg_recp","rectime","censrec","survtime","censdead")
+
+library(survival)
+
+temp$rectime_mon<-12*(temp$rectime/365.25)
+
+
+# fit a Cox PH model with three covariates: age, size, nodes
+cox.fit<-coxph(Surv(rectime_mon,censrec)~age+size+nodes,data=temp)
+#plot(zph.fit.t)
+## Scaled Schoenfeld residual
+zph.fit<-cox.zph(cox.fit)  # use the default "km" transformation
+zph.fit
+
+par(mfrow=c(2,2))
+plot(zph.fit)
+
+
+# use the identity transformation (g(t)=t)
+zph.fit.t<-cox.zph(cox.fit, transform="identity")  
+par(mfrow=c(2,2))
+plot(zph.fit.t)
+
+
+# use the log transformation (g(t)=log(t))
+zph.fit.log<-cox.zph(cox.fit, transform=function(x){log(x)})  
+zph.fit.log
+
+par(mfrow=c(2,2))
+plot(zph.fit.log)
+
+
+## Martingale residual
+cox.fit.2cov <- coxph(Surv(rectime_mon,censrec)~age+nodes,data=temp)
+mar.r<-resid(cox.fit.2cov,type="martingale") # martingale residual
+
+par(mfrow=c(1,1))
+plot(temp$size,mar.r,xlab="Tumor Size",ylab="Martingale Residual")
+lines(lowess(temp$size,mar.r,iter=0),lty=2)
+
+
+## Scaled score residual -- use type="dfbeta"
+score.r<-resid(cox.fit,type="dfbeta")
+par(mfrow=c(2,2))
+dev.off()
+
+plot(temp$age,score.r[,1],xlab="Age",ylab="Influence for age")
+plot(temp$size,score.r[,2],xlab="Tumor Size",ylab="Influence for tumor size")
+plot(temp$nodes,score.r[,3],xlab="#Nodes",ylab="Influence for number of nodes")
+
+
+## Cox-Snell residual (from "full" model with 3 covariates)
+coxsnell.r <- temp$censrec-resid(cox.fit,type="martingale")
+
+fitres <- survfit(Surv(coxsnell.r, temp$censrec)~1)
+
+plot(fitres$time,-log(fitres$surv),type='s',xlab='Cox-Snell Residuals', 
+     ylab='Estimated Cumulative Hazard Function')
+abline(0,1,col='red',lty=2)
+

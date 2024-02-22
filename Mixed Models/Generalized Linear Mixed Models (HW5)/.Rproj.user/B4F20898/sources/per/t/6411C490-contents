@@ -1,0 +1,90 @@
+---
+title: "hw5"
+author: "Benjamin Panny"
+date: "`r Sys.Date()`"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+library(tidyverse)
+library(VIM); library(mice)
+library(GLMMadaptive)
+library(kableExtra)
+```
+
+```{r}
+asthma <- read_csv('asthma.csv')
+asthma %>% glimpse
+```
+
+Until now, most pediatric studies examining the relationship between asthma and COVID-19 have been ecological and provided limited insights. To enrich this understanding, an observational study was conducted to evaluate the association at an individual level. The study population consists of children and adolescents aged 2 to 21 years who were diagnosed and hospitalized with asthma. The primary research questions were: (1) whether receiving an influenza vaccination is associated with improved asthma outcomes, specifically in the context of emergency department (ED) visit due to asthma exacerbation, and (2) whether racial disparities impact this association.
+
+The asthma dataset contains variables specifically tailored to address the research questions. Descriptions of these variables can be found in the table provided below.
+
+# Question 1:
+
+1.	Compare the following three models to investigate whether receiving an influenza vaccination is associated with Emergency Department (ED) visit due to asthma exacerbation: the random-intercepts model, the random-coefficients model (random coefficients for “encounterid” only) with independent random components, and the random-coefficients model (random coefficients for “encounterid” only) with potentially correlated random components. For all models, adjusting covariates include patient’s age, race, a ratio of FEV1/FVC less than vs. greater than or equal to 75%, eosinophils less than vs. greater than or equal to 0.3/L, and whether has other co-existing respiratory disorders. Please provide formal statistical tests in your model comparisons. (40 pts)
+
+## Model 1: Random-intercepts model
+
+```{r}
+gm1 <- asthma %>% 
+  mixed_model(exacerbationed ~ influenzavaccine + encounterid + patientage + black + fev1fvc75 + eosin03 + coexisting,
+              random = ~ 1 | personid, 
+              data = ., 
+              family = binomial())
+gm1_sum <- summary(gm1)
+gm1_sum
+```
+
+The model demonstrates, conditional on the same random intercept, statistically significant associations between `exacerbationed` and having race == black. The model also indicates that the intercept (i.e., 0 age & the absence of any of the categorical factors) is significantly different from 0. Additionally, several of the encounter IDs are statistically significant for a given random intercept.
+
+## Model 2: Random coefficients model (random coefficients for 'encounterid' only)
+
+```{r}
+gm2 <- asthma %>% 
+    mixed_model(exacerbationed ~ influenzavaccine + encounterid + patientage + black + fev1fvc75 + eosin03 + coexisting,
+                random = ~ encounterid | personid, 
+                data = ., 
+                family = binomial())
+gm2_sum <- summary(gm2)
+gm2_sum
+```
+
+Given the same random intercept and random coefficient for encounterid, the intercept (i.e., 0 age, '0th' encounterid, and the absence of any of the categorical factors), influenza vaccine, encounterid, and black race are statistically significantly associated with exacerbationed.
+
+## Model 3: Random coefficients model (random coefficients for 'encounterid' only) with potentially correlated random components
+
+```{r}
+library(geepack)
+library(nlme)
+library(gee)
+library(lme4)
+gm3 <- asthma %>% 
+  glmer(exacerbationed ~ influenzavaccine + encounterid + patientage + black + fev1fvc75 + eosin03 + coexisting + (1 + encounterid | personid), 
+        data = ., 
+        family = 'binomial',
+        control = glmerControl(optimizer="bobyqa", optCtrl=list(maxfun=2e5)))
+gm3_sum <- summary(gm3)
+gm3_sum
+```
+
+Given the same random effects, the intercept, influenza vaccine, encounterid, and black race are all statistically significantly related to exacerbationed.
+
+## Compare 3 models
+
+```{r}
+tibble(mod = c("gm1", 'gm2', 'gm3'), bic = c(gm1_sum$BIC, gm2_sum$BIC, gm3_sum$AICtab['BIC']),
+       logLik = c(gm1_sum$logLik, gm2_sum$logLik, gm3_sum$AICtab['logLik']),
+       aic = c(gm1_sum$AIC, gm2_sum$AIC, gm3_sum$AICtab['AIC']))
+```
+
+gm3 (random coefficient with possible covariance) is the best performing model of the 3 according to BIC, AIC, and log-likelihood
+
+2.	Write down the model specification of the best model from question #1. (15 pts)
+
+$$
+\log\left(\frac{\text{p(exacerbationed)}}{1-\text{p(exacerbationed)}}\right) = \beta_0 + \zeta_{0i} + \beta_1 \text{encounterid} + \zeta_{1i} \text{encounterid}_i + \beta_2 \text{influenzavaccine} +  \beta_3 \text{patientage} + \\ \beta_4 \text{black} + \beta_5 \text{fev1fvc75} + \beta_6 \text{eosin03} + \beta_7 \text{coexisting} + \epsilon \\
+i = \text{personid}
+$$

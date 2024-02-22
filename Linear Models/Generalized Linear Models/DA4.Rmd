@@ -1,0 +1,181 @@
+---
+title: "Applied Regression Data Analysis #1"
+author: "Benjamin Panny"
+date: "Due January 25th, 2023"
+# bibliography: references.bib 
+output:
+  html_document:
+     toc: true
+     toc_float: true
+  pdf_document: default
+  word_document: default
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+# Load Libraries and Data
+
+```{r load}
+library(tidyverse)
+source("alr_utility.R")
+dat <- read_csv("DA4.csv") %>% mutate(race = factor(race, levels=c(1,2), labels=c("white","black")),
+                                      dpros = factor(dpros, levels=1:4, labels=c("no nodule","left","right","bilobar")),
+                                      dcaps = factor(dcaps, levels=1:2, labels=c("no","yes")))
+
+```
+
+# Background
+
+Question:  A study was designed to identify variables associated with tumor penetration of prostatic capsule in patients with prostate cancer.  Data were collected from an academic affiliated cancer center.  For this assignment, the dataset was modified to include 374 patients and a subset of variables from the main study.  Of the 374 patients, 151 had a cancer that penetrated the prostatic capsule. 
+
+# Centering Variables
+
+a.	For interpretability, center the continuous predictors “age”, “psa”, “vol”, and “gleason” by their median values. Please generate variables “age_c”, “psa_c”, “vol_c” and “gleason_c” accordingly.
+
+```{r center}
+dat <- dat %>% mutate(age_c = age - median(age),
+               psa_c = psa - median(psa),
+               vol_c = vol - median(vol),
+               gleason_c = gleason - median(gleason))
+```
+
+
+# Fit 7 candidate models
+
+Model	Covariates	Deviance	Pseudo R-square	Adj Pseudo R-square	AIC	BIC
+1	dpros, gleason_c, psa_c					
+2	dpros, gleason_c, psa_c dcap					
+3	dpros, gleason_c, psa_c, vol_c					
+4	dpros, gleason_c, psa_c age_c					
+5	dpros, gleason_c, psa_c race					
+6	dpros, gleason_c, psa_c, vol_c, race					
+7	dpros, gleason_c, pas_c, dcaps, vol_c, age_c, race					
+
+```{r fit glm}
+glm_1 <- glm(capsule ~ dpros + gleason_c + psa_c, data = dat, family = "binomial")
+glm_2 <- glm(capsule ~ dpros + gleason_c + psa_c + dcaps, data = dat, family = "binomial")
+glm_3 <- glm(capsule ~ dpros + gleason_c + psa_c + vol_c, data = dat, family = "binomial")
+glm_4 <- glm(capsule ~ dpros + gleason_c + psa_c + age_c, data = dat, family = "binomial")
+glm_5 <- glm(capsule ~ dpros + gleason_c + psa_c + race, data = dat, family = "binomial")
+glm_6 <- glm(capsule ~ dpros + gleason_c + psa_c + vol_c + race, data = dat, family = "binomial")
+glm_7 <- glm(capsule ~ dpros + gleason_c + psa_c + dcaps + vol_c + age_c + race, data = dat, family = "binomial")
+```
+
+```{r glm table}
+tab <- tribble(~ Model, ~Covariates, ~Deviance, ~`Pseudo R2`, ~`adj Pseudo R2`, ~AIC, ~BIC,
+               1, str_c(colnames(glm_1$model)[-1], collapse = ", "),
+               deviance(glm_1), DescTools::PseudoR2(glm_1, which="McFadden"), DescTools::PseudoR2(glm_1, which="McFaddenAdj"), AIC(glm_1), BIC(glm_1),
+               2, str_c(colnames(glm_2$model)[-1], collapse = ", "),
+               deviance(glm_2), DescTools::PseudoR2(glm_2, which="McFadden"), DescTools::PseudoR2(glm_2, which="McFaddenAdj"), AIC(glm_2), BIC(glm_2),
+               3, str_c(colnames(glm_3$model)[-1], collapse = ", "),
+               deviance(glm_3), DescTools::PseudoR2(glm_3, which="McFadden"), DescTools::PseudoR2(glm_3, which="McFaddenAdj"), AIC(glm_3), BIC(glm_3),
+               4, str_c(colnames(glm_4$model)[-1], collapse = ", "),
+               deviance(glm_4), DescTools::PseudoR2(glm_4, which="McFadden"), DescTools::PseudoR2(glm_4, which="McFaddenAdj"), AIC(glm_4), BIC(glm_4),
+               5, str_c(colnames(glm_5$model)[-1], collapse = ", "),
+               deviance(glm_5), DescTools::PseudoR2(glm_5, which="McFadden"), DescTools::PseudoR2(glm_5, which="McFaddenAdj"), AIC(glm_5), BIC(glm_5),
+               6, str_c(colnames(glm_6$model)[-1], collapse = ", "),
+               deviance(glm_6), DescTools::PseudoR2(glm_6, which="McFadden"), DescTools::PseudoR2(glm_6, which="McFaddenAdj"), AIC(glm_6), BIC(glm_6),
+               7, str_c(colnames(glm_7$model)[-1], collapse = ", "),
+               deviance(glm_7), DescTools::PseudoR2(glm_7, which="McFadden"), DescTools::PseudoR2(glm_7, which="McFaddenAdj"), AIC(glm_7), BIC(glm_7),)
+
+tab %>% 
+  mutate(across(where(is.numeric), ~signif(., digits = 4))) %>%
+  knitr::kable(.) %>% kableExtra::kable_styling(latex_options = "striped")
+```
+
+# Pick the "best" model
+
+c.	What is the “best” model among the 7 candidate models listed in part b?  If candidate models are nested, please use a likelihood ratio test to test the importance of the extra term(s).  Justify your choice of a “best” model. 
+
+According to BIC, model 1 is best. According to Pseudo R2 and AIC, model 3 is best. Model 1 is nested in model 3, so I'll perform an LRT on the models.
+
+```{r lrt best model}
+anova(glm_1, glm_3, test="LRT")
+```
+
+Adding vol_c to model 1 to get model 3 does not make a statistically significant difference. glm_1 is the simplest model and has the lowest BIC value. There is no statistically significant difference between model 1 and the best model according to other metrics (Pseudo-R2 and AIC). Therefore, I pick glm_1/model1 as the best model.
+
+# Probability of tumor penetration
+
+d.	Based on the model you identified in part c, estimate the probability of having tumor penetration for a 65-year-old white man who had unilobar nodule (left), but no capsular involvement detected in digital rectal exam, and had 1.4 mg/ml prostatic specific antigen, a 0 cm3 tumor, and total Gleason score of 6.   
+
+```{r estimate probability}
+new_dat <- tibble(gleason_c = 6 - median(dat$gleason), dpros="left", psa_c = 1.4 - median(dat$psa))
+predict(glm_1, newdata=new_dat, type = "response")
+```
+
+The probability of this patient having tumor penetration according to model 1 is 0.2041
+
+# Interpret coefficient estimates 
+
+e.	Interpret the coefficient estimates (Intercept, one categorical and one continuous variables of your choice)
+
+The intercept is the log odds of a patient having tumor penetration if they have a median Gleason score, median prostatic specific antigen level, and "no nodule" for the `dpros` variable. The coefficient for `dprosleft` indicates that when a patient has a left unilobar nodule, there log odds for tumor penetration is .76859 higher than the log odds of a patient with no nodule having tumor penetration. The coefficient for `gleason_c` indicates that for each 1 unit difference away from the median Gleason score, the log odds of a patient having tumor penetration changes by .99354. The log odds decreases for unit changes below the median and the log odds increases for unit changes above the median.
+
+
+# Test overall model fit
+
+f.	Test the overall model fit. 
+
+```{r model fit}
+performance::performance_hosmer(glm_1, n_bins = 10)
+```
+
+There is no evidence to suggest poor fitting.
+
+# Check for residual outliers
+
+```{r residual outliers}
+alr_plot_residual(glm_1, x="predicted")
+```
+
+There are no residual outliers according to the 3.82 standard deviance threshold.
+
+# Check for high leverage
+
+```{r high leverage}
+alr_plot_leverage(glm_1, x="predicted", label=dat$id)
+```
+
+There are 22 patient IDs with high leverage
+
+```{r high leverage patients}
+(high_leverage <- alr_high_leverage(glm_1, show_leverage = TRUE, label=dat$id, label_name="patient"))
+```
+
+# Identify high influence patients
+
+```{r high influence}
+alr_plot_cookd(glm_1, x="predicted", label=dat$id)
+```
+
+25 patients have big influence on parameter estimation in model 1.
+
+```{r high influence patients}
+(high_influence <-  alr_influential_cookd(glm_1, show_cookd = TRUE, label=dat$id, label_name="patient"))
+```
+
+# Problematic data points and Goodness of Model Fit
+
+j.	Do you have problematic points based on your responses to (b). – (i).?  Does your model fit well?
+
+```{r high leverage high influence}
+possible_removal <- high_influence %>% full_join(high_leverage, by="patient") %>% drop_na()
+
+possible_removal %>% 
+  knitr::kable(caption = "Observations For Possible Removal") %>%
+  kableExtra::kable_styling(latex_options = "striped")
+
+```
+
+Data points from 5 patients have both high leverage and high influence over parameter estimation, making them the most problematic points in this sample.
+
+```{r gof_2}
+tab %>% 
+  mutate(across(where(is.numeric), ~signif(., digits = 4))) %>%
+  knitr::kable(.) %>% kableExtra::kable_styling(latex_options = "striped")
+```
+
+While model 1 is best according to reasoning given above, a Pseudo-R2 of .22 is quite low even though the goodness of fit test was passable. Therefore, I conclude the model is not very well fit.

@@ -1,0 +1,12 @@
+"0","egfr %>%
+  mutate(surgery = if_else(surgery == 1, ""RYGB"", ""LAGB"")) %>% 
+  group_by(surgery, time) %>% 
+  summarise(avg = mean(egfr, na.rm = TRUE),
+            stdev = sd(egfr, na.rm = TRUE) / sqrt(n() - sum(is.na(egfr)))) %>% 
+  ggplot(aes(x = time, y = avg, color = factor(surgery)))+
+  geom_point()+
+  geom_line()+
+  geom_errorbar(aes(ymin = avg - stdev, ymax = avg + stdev)) +
+  labs(color = ""Surgery Type"", x = ""Time (~months)"", y = ""Average EGFR"")
+"
+"2","`summarise()` has grouped output by 'surgery'. You can override using the `.groups` argument."

@@ -1,0 +1,6 @@
+"0",""
+"0","influentials %>% "
+"0","  ggplot(aes(x = tx, y = tx.inf, label = id)) +"
+"0","  geom_point() +"
+"0","  geom_label() +"
+"0","  labs(x = 'tx', y = 'tx influence')"

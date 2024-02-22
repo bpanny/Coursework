@@ -1,0 +1,26 @@
+{
+    "id": "87FE3EC7",
+    "path": "~/Education/Biostats School/Fall 2023/Applied Survival Analysis/03 - Regression Models for Survival Data/coxph_WHAS100.R",
+    "project_path": null,
+    "type": "r_source",
+    "hash": "95609934",
+    "contents": "",
+    "dirty": false,
+    "created": 1696250897597.0,
+    "source_on_save": false,
+    "relative_order": 5,
+    "properties": {
+        "source_window_id": "",
+        "Source": "Source",
+        "cursorPosition": "42,25",
+        "scrollLine": "22"
+    },
+    "folds": "",
+    "lastKnownWriteTime": 1695647811,
+    "encoding": "UTF-8",
+    "collab_server": "",
+    "source_window": "",
+    "last_content_update": 1695647811,
+    "read_only": false,
+    "read_only_alternatives": []
+}

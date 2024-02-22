@@ -1,0 +1,7 @@
+"0","dispersion_parameter = sum(resid(nb_1,type =""pearson"")^2)/nb_1$df.residual"
+"0",""
+"0","dispersion_parameter"
+"1","[1]"
+"1"," 1.423038"
+"1","
+"

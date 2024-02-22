@@ -1,0 +1,5 @@
+"0","leuk %>% "
+"0","  ggplot(aes(x = time_relapse, fill = factor(remission_status)))+"
+"0","  geom_histogram()+"
+"0","  facet_wrap(~treatment)+"
+"0","  labs(fill = ""Remission Status"")"

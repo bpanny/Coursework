@@ -1,0 +1,8 @@
+"0",""
+"0","classes %>% "
+"0","    mutate(gini = get_gini2d(p, q),"
+"0","           log_gini = log(gini)) %>% "
+"0","    ggplot(aes(x = p, y = gini)) +"
+"0","    geom_line() +"
+"0","    geom_point(size = 3, color = 'green', aes(x = p[which.max(gini)], y = max(gini))) +"
+"0","    geom_point(size = 3, color = 'red', aes(x = p[which.min(gini)], y = min(gini)))"

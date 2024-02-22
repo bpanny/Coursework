@@ -1,0 +1,254 @@
+---
+title: "hw02-solution"
+author: "Benjamin Panny"
+date: "`r Sys.Date()`"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+library(recommenderlab)
+library(data.table)
+library(tidyverse)
+library(caret)
+library(patchwork)
+```
+
+```{r}
+#created by python tutorial
+train <- fread(here::here("train.csv"))
+test <- fread(here::here("test.csv"))
+movie_names <- read_csv("archive/movie_titles.csv", col_names = c("id", "year", "name"))
+```
+
+## Exploratory Data Analysis
+
+```{r}
+count_train_users <- train %>% count(user)
+count_train_movies <- train %>% count(movie)
+count_test_users <- test %>% count(user)
+count_test_movies <- test %>% count(movie)
+train %>% dim()
+test %>% dim()
+count_train_users %>% dim()
+count_train_movies %>% dim()
+count_test_users %>% dim()
+count_test_movies %>% dim()
+```
+
+- There are about 80M ratings in the training set and 20M in the test set.
+- There are 405,041 unique users in the training data set
+- 274,164 users in the test set are in the training set
+- There are 349,312 unique users in the testing data set
+- There are 17,424 unique movies in the training data set
+- There are 17,757 unique movies in the testing data set
+- 17,411 movies that are in the test set are in the training set
+
+If a user is not in the 
+
+```{r}
+p1 <- count_train_users %>% ggplot(aes(x = n))+geom_histogram()+labs(x = "# user ratings (train)", y = "# users")
+p2 <- count_train_movies %>% ggplot(aes(x = n))+geom_histogram()+labs(x = "# movie ratings (train)", y = "# movies")
+p3 <- count_test_users %>% ggplot(aes(x = n))+geom_histogram()+labs(x = "# user ratings (test)", y = "# users")
+p4 <- count_test_movies %>% ggplot(aes(x = n))+geom_histogram()+labs(x = "# user ratings (test)", y = "# users")
+(p1 + p2) / (p3 + p4)
+
+p1 <- count_train_users %>% ggplot(aes(x = log(n)))+geom_histogram()+labs(x = "# user ratings (train)", y = "# users")
+p2 <- count_train_movies %>% ggplot(aes(x = log(n)))+geom_histogram()+labs(x = "# movie ratings (train)", y = "# movies")
+p3 <- count_test_users %>% ggplot(aes(x = log(n)))+geom_histogram()+labs(x = "# user ratings (test)", y = "# users")
+p4 <- count_test_movies %>% ggplot(aes(x = log(n)))+geom_histogram()+labs(x = "# user ratings (test)", y = "# users")
+(p1 + p2) / (p3 + p4) + plot_annotation(title = "log (x)")
+```
+
+## Basic Matrix Factorization
+
+$$
+\hat{r}_{ui} = q_{i}^{T}p_u
+$$
+
+where:
+
+- $\hat{r}_{ui}$ = predicted rating of user $u$ for item $i$
+- $q_i^T \in \mathbb{R}^f$ = item vector for item $i$
+- $p_u \in \mathbb{R}^f$ = user vector for item $i$
+
+And we choose $q$ and $p$ that optimize the following objective.
+
+$$
+\min_{q*, p*} \sum_{(u,i) \in \kappa} (r_{ui} - q_{i}^{T}p_u)^2 + \lambda\left(\lVert g_{u} \rVert^2 + \lVert p_{u} \rVert^2 \right)
+$$
+
+where:
+
+- $\kappa$ is the set of $(u,i)$ pairs for which $r_{ui}$ is known in the training set.
+
+## Learning 
+
+### Stochastic Gradient Descent
+
+"For each given training case, the system predicts $r_{ui}$ and computes associated prediction error"
+
+$$
+e_{ui} = r_{ui} - q_i^T p_u
+$$
+
+and modifies parameters by a magnitude proportional to $\gamma$
+
+$$
+q_i \leftarrow q_i + \gamma \cdot  (e_{ui} \cdot p_u - \lambda \cdot q_i)
+$$
+
+$$
+p_u \leftarrow p_u + \gamma \cdot (e_{ui} \cdot q_i - \lambda \cdot p_u)
+$$
+
+### Alternating Least Squares
+
+For instance, this fixes q, then recomputes p, then fixes p, then recomputes q, and so on until convergence. The purpose of this is to turn the SGD non-convex optimization into a convex one. 
+
+## (A1) With biases
+
+Rating bias, for a user and item is defined as
+
+$$
+b_{ui} = \mu + b_{i} + b_{u}
+$$
+
+where:
+
+- $\mu$ = overall average
+- $b_i$, $b_u$ = observed deviations for item $i$ and user $u$ from the average.
+
+The predicted rating, with bias, is
+
+$$
+\hat{r}_{ui} = \mu + b_{i} + b_{u} + q_{i}^{T}p_u = b_{ui} + q_{i}^{T}p_u
+$$
+
+The updated objective is:
+
+$$
+\min_{q*, p*} \sum_{(u,i) \in \kappa} (r_{ui} - b_{ui} - q_{i}^{T}p_u)^2 + \lambda\left(\lVert q_{i} \rVert^2 + \lVert p_{u} \rVert^2 + b_u^2 + b_i^2 \right)
+$$
+
+I will use 10 latent factors
+
+```{r}
+user_ids <- unique(c(test$user, train$user))
+```
+
+```{r}
+p <- matrix(0, nrow = 480189, ncol = 10)
+
+# assign user IDs from train to row names for indexing
+rownames(p) <- user_ids
+
+q <- matrix(0, nrow = 17770, ncol = 10)
+```
+
+```{r}
+gamma <- 0.1
+lambda <- 0.001
+mean_r <- train$rating %>% mean()
+user_mean_dev <- train[, .(dev = mean(rating)), by = user]
+user_mean_dev$dev <- user_mean_dev$dev - mean_r
+item_mean_dev <- train[, .(dev = mean(rating)), by = movie]
+item_mean_dev$dev <- item_mean_dev$dev - mean_r
+```
+
+```{r}
+# for (i in seq_len(nrow(train))){
+begin <- Sys.time()
+for (i in seq_len(nrow(train))){
+  user <- as.character(train[i,]$user)
+  movie <- train[i,]$movie
+  
+  r_ui_hat <- as.numeric(mean_r + user_mean_dev[user_mean_dev$user == train[i,]$user]$dev + item_mean_dev[item_mean_dev$movie == train[i,]$movie]$dev + t(q[movie,])%*%p[user,])
+  
+  p[user,] <- p[user,] + gamma * ((train[i,]$rating - r_ui_hat)*q[movie,] - lambda * p[user,])
+  
+  q[movie,] <- q[movie,] + gamma * ((train[i,]$rating - r_ui_hat)*p[user,] - lambda * q[movie,])
+
+  if (i %% 1e6 == 0){print(i)}
+}
+end <- Sys.time()
+end-begin
+```
+
+Try with `accumulate()`
+
+
+```{r}
+# Define the operation function
+update_w_bias <- function(features, i) {
+  user <- as.character(train[i,]$user)
+  movie <- train[i,]$movie
+  p <- features$p
+  q <- features$q
+  
+  r_ui_hat <- as.numeric(mean_r + user_mean_dev[user_mean_dev$user == train[i,]$user]$dev + item_mean_dev[item_mean_dev$movie == train[i,]$movie]$dev + t(q[movie,])%*%p[user,])
+  
+  p[user,] <- p[user,] + gamma * ((train[i,]$rating - r_ui_hat)*q[movie,] - lambda * p[user,])
+  
+  q[movie,] <- q[movie,] + gamma * ((train[i,]$rating - r_ui_hat)*p[user,] - lambda * q[movie,])
+  
+  # Return a list with the updated p and q matrices
+  return(list(p = p, q = q))
+}
+
+# Call the iteration function
+begin <- Sys.time()
+result <- reduce(1:nrow(train), update_w_bias, .init = list(p = p, q = q))
+end <- Sys.time()
+bias_runtime <- end - begin
+```
+
+
+
+```{r}
+# include Rcpp
+library(Rcpp)
+
+# create the cpp function string
+cppFunction('
+  DataFrame updateParameters(DataFrame train, NumericVector mean_r, DataFrame user_mean_dev, DataFrame item_mean_dev, NumericMatrix p, NumericMatrix q, double gamma, double lambda) {
+    int n = train.nrows();
+    for(int i = 0; i < 10; ++i) {
+      std::string user = as<std::string>(train["user"][i]);
+      std::string movie = as<std::string>(train["movie"][i]);
+      double r_ui_hat = as<double>(mean_r) + as<double>(user_mean_dev["dev"][user_mean_dev["user"] == user]) + as<double>(item_mean_dev["dev"][item_mean_dev["movie"] == movie]) + sum(q[movie, _] * p[user, _]);
+      p(user, _) = p(user, _) + gamma * ((as<double>(train["rating"][i]) - r_ui_hat) * q(movie, _) - lambda * p(user, _));
+      q(movie, _) = q(movie, _) + gamma * ((as<double>(train["rating"][i]) - r_ui_hat) * p(user, _) - lambda * q(movie, _));
+    }
+    return DataFrame::create(_["p"]=p, _["q"]=q);
+  }
+')
+
+# call the function in R
+result <- updateParameters(train, mean_r, user_mean_dev, item_mean_dev, p, q, gamma, lambda)
+```
+
+## With Implicit Feedback
+
+"The dataset does not only tell us the rating values, but also which movies users rate, regardless of how they rated these movies. In other words, a user implicitly tells us about her preferences by choosing to voice her opinion and vote a (high or low) rating. This reduces the ratings matrix into a binary matrix, where “1” stands for “rated”, and “0” for “not rated”. Admittedly, this binary data is not as vast and independent as other sources of implicit feedback could be. Nonetheless, we have found that incorporating this kind of implicit data – which inherently exist in every rating based
+recommender system – significantly improves prediction accuracy. Some prior techniques, such as Conditional RBMs [18], also capitalized on the same binary view of the data."
+
+With implicit feedback, the new predicted rating is
+
+$$
+\large \hat{r}_{ui} = \mu + b_u + b_i + q_i^T\left(p_u +
+|I_u|^{-\frac{1}{2}} \sum_{j \in I_u}y_j\right) 
+$$
+
+where:
+
+- $I_u$ = the set of all items rated by user u
+- $y_j$ = Our new set of user factors that capture implicit ratings.
+
+The updated objective is
+
+$$ 
+\large \sum_{r_{ui} \in R_{train}} \left(r_{ui} - \hat{r}_{ui} \right)^2 +
+\lambda\left(b_i^2 + b_u^2 + ||q_i||^2 + ||p_u||^2 + ||y_j||^2\right) 
+$$
+

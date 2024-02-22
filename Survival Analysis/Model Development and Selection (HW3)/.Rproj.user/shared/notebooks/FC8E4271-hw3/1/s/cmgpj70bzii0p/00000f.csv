@@ -1,0 +1,7 @@
+"0","test.c<-basehaz(cox.fit.5,centered=F)"
+"2","Warning: the model contains interactions; the default curve based on columm means of the X matrix is almost certainly not useful. Consider adding a newdata argument."
+"0","base.surv.fit<-exp(-test.c$hazard)"
+"0","sex.surv.0.fit<-base.surv.fit"
+"0","sex.surv.1.fit<-base.surv.fit^exp(coefs_5[1])"
+"0",""
+"0","plot(test.c$time,sex.surv.0.fit,type=""l"",lty=1,col=3,ylim=c(0,1),ylab=c(""Covariate Adjusted Survival Function""),xlab=c(""Time (Days)""))"

@@ -1,0 +1,238 @@
+---
+title: "Applied Regression Data Analysis #2"
+author: "Benjamin Panny"
+date: "Due February 8th, 2023"
+# bibliography: references.bib 
+output:
+  html_document:
+     toc: true
+     toc_float: true
+  pdf_document: default
+  word_document: default
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+# Load Packages and Data
+
+```{r, load_packages}
+library(tidyverse)
+library(GGally)
+library(table1)
+library(mfp)
+source("alr_utility.R")
+```
+
+
+```{r, load_data}
+dat2 <- read_csv('DA2.csv', show_col_types = FALSE)
+dat2 %>% glimpse
+```
+
+# Question 1 Background
+
+Using the same data from Data Analysis #2, Benignus et al. (1981) conducted an animal study to measure blood levels of toluene (bloodtol) (a commonly used solvent) following a 3-hour inhalation exposure to ranging from 11.34 to 1744.77 parts per million (ppm) toluene (newppm). Blood levels are expressed in ppm, weight in grams, and age in days.  
+
+
+Use these data (DA2) to answer the following questions:
+
+## Multiple Linear Model (`bloodtol ~ newppm + age`)
+
+a.	Fit a multiple linear model with `bloodtol` as the dependent variable, and  `newppm` and `age` as the independent variables. Generate a component plus residual plot and add the lowess and mSpline smoothers (live session example for topic 7).  Comment on these two graphs.  Would an alternative model possibly be better?  There is no need to do additional analyses, just create the requested two graphs and make a comment based on the graphs.
+
+```{r, fit_mlm}
+mlm_1 <- lm(bloodtol ~ newppm + age, data = dat2)
+```
+
+```{r, plot_mlm_1}
+alr_plot_ccpr(mlm_1, smooth=c("lowess", "mSpline"), spline_df = 4, variable=c("newppm", "age"))
+```
+
+The fitted models appear to indicate an effect of `newppm` and `age` on `bloodtol`. Lowess and mSpline models don't seem appropriate for `newppm` because they indicate higher levels of `newppm` start becoming associated with lower levels of `bloodtol`. The additive effect of `newppm` may also not be entirely appropriate for the model because there is a non-normal residual spread around the fitted line. Lowess/Spline features derived from `age` may be more appropriate for modelling `bloodtol` than `age` as a purely additive feature. 
+
+## Fit 2nd degree fractional polynomial
+
+b.	Fit a 2nd degree fractional polynomial (df=4, which is default in mfp()). From the fractional polynomial output, choose which model is best. Show component + residual plot including the fractional polynomial and mSpline with degrees of freedom 4.
+
+```{r, fit_mfp_1}
+mfp_1 <- mfp(bloodtol ~ fp(age) + fp(newppm), data=dat2, verbose=T)
+```
+
+The best model from `mfp()` is
+
+$$
+bloodtol = \beta_0 + \beta_1 \times \left(age/100 \right) + \beta_2 \times \left(newppm / 100 \right)^{2} + \beta_3 \times \left(newppm / 100 \right)^{3}
+$$
+
+
+
+```{r, plot_mfp_1}
+alr_plot_ccpr(lm(mfp_1$formula,data=dat2), smooth=c("mSpline"), spline_df = 4)
+```
+
+The plots show three polynomial features from `mfp_1`. The residuals around the fitted lines appear normal. The splines also oscillate around the fitted lines, indicating the splines may be overfit to the data and could "even out" if more data were collected. So the linear the fit in our model is good.
+
+
+## Justify best model selection for DA2 `bloodtol` dataset 
+
+c.	Out of all models that you’ve tried from parts a. and b. (linear, lowess, spline, 2nd degree fractional polynomial), which model would you choose.  Justify your answer.  Don’t fit anything new here, base you answer on the graphs that you’ve generated in part a as well as the fractional polynomial plot and output from part b.  You do not have to compute deviance or R2 for these models.
+
+I would choose the 2nd degree fractional polynomial over the other models. I would choose FP over linear because the residuals are more normalized in the FP compared to the linear model. I would choose FP over lowess and spline because they indicate biologically implausible effects at the extremes of the data distribution
+
+
+# Question 2 Background
+
+Property valuation:  Twenty four observations were obtained from a property listing for Erie PA.  The problem is to use model building to find the best fitting regression model for the prediction of sales price (Y) using the following independent variables:  taxes in $1000s of dollars (X1), number of bathrooms (X2), lot size (X3), living space (X4), number of garage stalls (X5), number of rooms (X6), number of bedrooms (X7), age of the home in years (X8) and number of fireplaces (X9).  The data have been uploaded to Canvas (DA3.dta).
+
+##  Veteran Real Estate Agent Model
+
+a.	A veteran real estate agent has suggested that a model with taxes, the number of rooms, and the age of the house should adequately describe sales price.  Fit that model and assess whether you agree. 
+
+```{r, DA3_load}
+dat3 <- read_csv("DA3.CSV") %>% 
+  rename(tax=x1, bathrooms=x2, lot=x3, 
+         living=x4, garage=x5, rooms=x6, bedrooms=x7, 
+         age=x8, fireplace=x9, price=y)
+```
+
+```{r, mlm_2}
+mlm_2 <- lm(price ~ tax + rooms + age, data = dat3)
+mlm_2 %>% summary
+```
+
+```{r, cpr_mlm_2}
+alr_plot_ccpr(mlm_2)
+```
+
+I agree with this veteran real estate agent. There model seems to be a significant explanatory model of sales price. However, age of the house seems to matter little as an additive effect. Rooms also has a surprising negative relationship with price of the house.
+
+## Sales Price Distribution as a function of Local Taxes
+
+b.	Another suggestion was that the selling price is determined by its desirability which is a function of the physical characteristics of the building.  The physical characteristics of the building are reflected in the local taxes paid on the building, thus the best predictor of sales price is local taxes.  Fit that model and assess whether you agree.
+
+```{r, mlm_3}
+mlm_3 <- lm(price ~ tax, data = dat3)
+mlm_3 %>% summary
+```
+
+```{r, cpr_mlm_3}
+alr_plot_ccpr(mlm_3)
+```
+
+I'm not sure I agree with their rationale, but the linear model appears to be a good fit.
+
+## Building Characteristic Redundancy after Local Taxes
+
+c.	Because of the suggestion in b), it was also then suggested that the building characteristics in an equation with local taxes would be redundant in describing sales price.  Fit that model with all 9 predictors and assess whether you agree.  Also assess collinearity and interpret what you see.  Should you fit another model to address part c?  If so, fit it and assess if you agree with the suggestion.
+
+```{r, mlm_4}
+mlm_4 <- lm(price ~ ., data = dat3)
+
+mlm_4 %>% summary
+anova(mlm_4)
+```
+
+When all features are included, only the intercept coefficient is statistically significant (`p < .05`). According to the ANOVA of mlm_4, only tax significantly contributes to the model prediction, and the other features do not significantly contribute to the model once tax is accounted for.
+
+```{r, assess_collinearity}
+car::vif(mlm_4)
+dat3 %>% cor() > .8
+```
+
+Assessing collinearity, the tax, rooms, and bedrooms features have variance inflation factors greater than 5, indicating that their parameter estimates influence the variance of other parameter estimates (increase their standard errors / reduce our estimation precision). Therefore, I'll compare whether `rooms` or `bedrooms` explains more variance in price when considered alone and keep that feature while removing the other. Then I'll reassess model fit and collinearity. It's noteworthy that tax and price are very highly correlated (>.8). 
+
+```{r}
+lm(price ~ rooms, data = dat3) %>% summary
+lm(price ~ bedrooms, data = dat3) %>% summary
+```
+
+
+```{r}
+mlm_5 <- lm(price ~ . - bedrooms, data = dat3)
+mlm_5 %>% summary
+mlm_5 %>% car::vif()
+mlm_6 <- lm(price ~ . - bedrooms - rooms, data = dat3)
+mlm_6 %>% summary
+mlm_6 %>% car::vif()
+```
+
+After removing rooms from the model, tax's VIF was still above 5, indicating it might be wise to also remove rooms from the model. Not much variance explained is sacrificed by leaving rooms and bedroom out of the model.
+
+## Choose a model of price from among those fit
+
+d.	Which model would you choose from parts a-c?  Justify your choice.
+
+I would choose the most complex model with VIF less than 5. That is, `mlm_6`, because explains a lot of the variance in sales price. While variables besides tax and intercept are insignificant statistically, I would still keep them over the simpler model that includes only taxes, since the predictive performance is higher in this model compared to the simpler model with only taxes. However, taxes clearly explains most of the variance in price, given that taxes are derived from assessed value of real estate, so serve as a proxy for price.
+
+
+## LASSO, ElasticNet, and backwards selection
+
+e.	Now use LASSO, ElasticNet and a backwards selection and find fitted regression models that relate the sale price to taxes and building characteristics.  Based on these 3 models, present what you consider to the most adequate model or models for predicting the sales price of homes in Erie PA.  Do not perform model diagnostics here (only because I wanted to cut down on the work, typically we would). 
+
+```{r, backwards}
+lm_backselect <- step(lm(price ~ ., data = dat3), direction = "backward", trace = FALSE)
+lm_backselect_BIC <- step(lm(price ~ ., data = dat3), direction = "backward", k = log(NROW(dat3)), trace = FALSE)
+```
+
+```{r, lasso_and_elastic_net}
+library(glmnet)
+library(glmnetUtils)
+# lasso
+fit_lasso <- cv.glmnet(price ~ ., data = dat3, alpha = 1)
+
+coef_lasso <- coef(fit_lasso) # selected coefficients
+# Elastic Net
+fit_elastic <- cv.glmnet(price ~ ., data = dat3, alpha = 0.5)
+
+coef_elastic <- coef(fit_elastic)
+fit_elastic
+coef_elastic 
+
+```
+
+```{r, see_coefficients}
+coef_backSelect <- coef(lm_backselect)
+coef_backSelect_BIC <- coef(lm_backselect_BIC)
+
+tibble(variable = rownames(coef_lasso), LASSO = coef_lasso[,1]) %>%
+                filter(LASSO != 0) %>%
+  full_join(tibble(variable = rownames(coef_elastic), 
+                   `Elastic Net` = coef_elastic[,1]) %>%
+              filter(`Elastic Net` != 0), 
+            by="variable")  %>% 
+  full_join(tibble(variable = names(coef_backSelect), 
+                   `Backward` = coef_backSelect), 
+            by="variable")  %>%
+  full_join(tibble(variable = names(coef_backSelect_BIC), 
+                   `Backward BIC` = coef_backSelect_BIC), 
+            by="variable")
+```
+
+```{r, compare_models}
+lm_LASSO <- lm(price ~ tax + bathrooms, data = dat3)
+lm_elastic <- lm(price ~ tax + bathrooms + lot + living, data = dat3)
+lm_backward <- lm(price ~ tax + bathrooms + garage + bedrooms, data = dat3)
+lm_backward_BIC <- lm(price ~ tax + bathrooms + garage + bedrooms, data = dat3)
+
+tribble(~model, ~AIC, ~BIC, ~`adj R2`, ~R2,
+       "LASSO", AIC(lm_LASSO), BIC(lm_LASSO),
+                        summary(lm_LASSO)$adj.r.squared,
+                        summary(lm_LASSO)$r.squared,
+       "Elastic Net", AIC(lm_elastic),BIC(lm_elastic),
+                        summary(lm_elastic)$adj.r.squared,
+                        summary(lm_elastic)$r.squared,
+       "Backward Selection (AIC)", AIC(lm_backward),BIC(lm_backward),
+                        summary(lm_backward)$adj.r.squared,
+                        summary(lm_backward)$r.squared,
+       "Backward Selection (BIC)",
+        AIC(lm_backward_BIC),BIC(lm_backward_BIC),
+                        summary(lm_backward_BIC)$adj.r.squared,
+                        summary(lm_backward_BIC)$r.squared)
+```
+
+LASSO gives the best predictive performance according to BIC. Given this model performance metric is the most stringent on model complexity, and the R2 aren't too different between the simpler LASSO model and the other models, I choose the LASSO-regularized model as the best model. Interestingly, the more complex models from elastic net and backwards selection both include what LASSO includes, but disagree on which frivolous two extra predictors to include.
+
+
+NOTE:  While normally we would do a model validation after we decided on a model, the sample size is too small to do a data split for validation for this question. 

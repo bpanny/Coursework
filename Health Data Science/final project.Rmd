@@ -2,19 +2,20 @@
 title: "A Global Perspective on Life Expectancy and Its Associations"
 author: "Benjamin Panny"
 date: "12/17/2021"
-output: 
-  html_document: 
-    toc: yes
-    toc_float: 
-      collapsed: true
-    number_sections: yes
-    fig_caption: yes
-    fig_width: 10
-    fig_height: 6.6
+output: github_document
 ---
 
 ```{r setup, echo=FALSE}
  knitr::opts_chunk$set(echo=TRUE, warning = FALSE, message = FALSE)
+  # html_document: 
+    # toc: yes
+    # toc_float:
+  #     collapsed: true
+    # number_sections: yes
+    # fig_caption: yes
+    # fig_width: 10
+    # fig_height: 6.6
+    
 ```
 
 # Introduction

@@ -1,0 +1,6 @@
+"0","# KL index"
+"0","KL <- NbClust(data=arrest, min.nc = 2, max.nc = 6,"
+"0","              method=""kmeans"",index=""kl"")"
+"0","plot(2:6, KL$All.index, type=""o"","
+"0","     xlab=""number of clusters"",ylab=""KL index"","
+"0","     ""cex.lab""=1.5, cex=2.5)"

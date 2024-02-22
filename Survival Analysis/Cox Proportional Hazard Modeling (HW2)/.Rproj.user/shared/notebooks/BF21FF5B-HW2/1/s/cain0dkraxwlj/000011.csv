@@ -1,0 +1,1 @@
+"0","lines(test.c$time,exp(-test.c$hazard),type=""l"",lty=3,col=6,lwd=2) # no hormone; centering"

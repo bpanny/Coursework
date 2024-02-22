@@ -1,0 +1,8 @@
+"0","whas %>%"
+"0","  ggplot(aes(x = lenfol, y = age, shape = fstat, color = fstat)) + "
+"0","  geom_point() + "
+"0","  geom_smooth(se = FALSE) + "
+"0","  geom_smooth(aes(x = lenfol, y = age), inherit.aes = FALSE, se = FALSE) + "
+"0","  geom_function(fun = ~ 75 - .006*(.x), inherit.aes = FALSE, color = ""green"", linewidth = 2, alpha = .7) + "
+"0","  labs(shape = ""Vital Status"", color = ""Vital Status"", x = ""Follow-up Time (Days)"", y = ""Age (Years)"")"
+"0",""

@@ -1,0 +1,2 @@
+"0","test.nc<-basehaz(gbcs_2,centered=F)"
+"0","plot(test.nc$time,exp(-test.nc$hazard),type=""l"",lty=1,col=3,ylim=c(0,1),ylab=c(""Baseline Survival Estimates""),xlab=c(""Recurrence Time (Months)"")) # no hormone; no centering"

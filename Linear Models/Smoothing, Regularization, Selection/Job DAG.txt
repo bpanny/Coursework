@@ -1,0 +1,22 @@
+1a. Component plus residual plot
+Add lowess and mSpline smoothers from topic 7 live example
+
+1b. Choose best model from fractional polynomial output
+Show component plus residual plot
+include fractional polynomial and mspline with df=4
+
+1c. Choose best model from graphs from 1a and 1b
+
+2a. Use R code chunk to alter DA3 column names. Fit given model and assess descriptive adequacy of sales price.
+
+2b. Fit model with local taxes as predictor. Asses agreement the best predictor of sales price is local taxes?
+
+2c. Are other physical building characteristics redundant when local taxes are included in the model? Fit with all 9 predictors. Assess collinearity and assess what I see. Should I fit another model for this part? If so I fit and assess suggestion.
+
+2d. Choose best model from 2a through 2c
+
+2e. Fit LASSO, elasticnet, and backwards selection. What is most adequate model or set of models to predicts sales price? Don't perform model diagnostics, tho typically would.
+
+NOTE: data set too small for model validation in this exercise.
+
+

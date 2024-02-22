@@ -1,0 +1,16 @@
+"0","library(lmerTest)
+"
+"2","
+Attaching package: ‘lmerTest’
+
+"
+"2","The following object is masked from ‘package:lme4’:
+
+    lmer
+
+"
+"2","The following object is masked from ‘package:stats’:
+
+    step
+
+"

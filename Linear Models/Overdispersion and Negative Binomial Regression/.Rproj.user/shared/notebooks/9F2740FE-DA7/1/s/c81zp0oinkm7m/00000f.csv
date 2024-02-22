@@ -1,0 +1,8 @@
+"0","glm_1 <- glm(visit ~ ., family = poisson(link = 'log'), data = dat)"
+"0","exp(glm_1$coefficients[2])"
+"1","      age "
+"1","
+"
+"1","0.9221173 "
+"1","
+"

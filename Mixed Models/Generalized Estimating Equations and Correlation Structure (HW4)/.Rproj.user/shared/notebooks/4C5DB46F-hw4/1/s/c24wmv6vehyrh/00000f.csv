@@ -1,0 +1,3 @@
+"0","comparison <- cbind(coef(fit_gee_ar1),coef(fit_gls_ar1))"
+"0","colnames(comparison) <- c(""GEE"", ""Covariance Pattern"")"
+"0","comparison %>% kable() %>% kable_styling"

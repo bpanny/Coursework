@@ -1,0 +1,61 @@
+setwd("C:\\Users\\yingding\\OneDrive - University of Pittsburgh\\Biost2066\\Codes")
+
+# read in data
+temp<-read.table("gbcs.dat", as.is=T)
+names(temp)<-c("id","diagdate","recdate","deathdate","age","menopause",
+               "hormone","size","grade","nodes","prog_recp","estrg_recp","rectime","censrec","survtime","censdead")
+
+library(survival)
+
+temp$rectime_mon<-12*(temp$rectime/365.25)
+
+
+# fit a Cox PH model with dichotomized age, size, nodes
+median(temp$age)  # 53
+temp$new.age<-c(temp$age>52)
+cox.fit<-coxph(Surv(rectime_mon,censrec)~new.age+size+nodes,data=temp)
+cox.fit
+cox.zph(cox.fit)
+
+# stratify on "new.age"
+cox.fit.2<-coxph(Surv(rectime_mon,censrec)~strata(new.age)+size+nodes, data=temp)
+summary(cox.fit.2)
+
+
+#H0: cumulative baseline hazards for both strata 
+H0 <- basehaz(cox.fit.2,centered=F)
+
+# cumulative baseline hazard for stratum 1 (young age group)
+H01 <- H0[H0$strata=="new.age=FALSE",]
+S01 <- exp(-H01$hazard)
+
+# cumulative baseline hazard for stratum 2 (old age group)
+H02 <- H0[H0$strata=="new.age=TRUE",]
+S02 <- exp(-H02$hazard)
+
+
+# tumor size effect:
+beta=cox.fit.2$coef
+x1=c(mean(temp$size[temp$size<mean(temp$size)]),mean(temp$nodes))
+x2=c(mean(temp$size[temp$size>=mean(temp$size)]),mean(temp$nodes))
+
+Sx1.1=S01^as.numeric(exp(beta%*%x1)) # younger age; smaller size
+Sx1.2=S02^as.numeric(exp(beta%*%x1)) # older age; smaller size
+
+Sx2.1=S01^as.numeric(exp(beta%*%x2)) # younger age; larger size
+Sx2.2=S02^as.numeric(exp(beta%*%x2)) # older age; larger size
+
+
+xlm=range(temp$rectime_mon)
+ylm=range(Sx1.1,Sx1.2,Sx2.1,Sx2.2)
+
+plot(0,0,pch=' ',xlab='Time in Months',ylab='Estimated Survival Probability',xlim=xlm,ylim=ylm)
+lines(H01$time,Sx1.1,col=1,type='s')
+lines(H01$time,Sx2.1,col=2,type='s')
+
+lines(H02$time,Sx1.2,col=1,type='s',lty=2)
+lines(H02$time,Sx2.2,col=2,type='s',lty=2)
+
+legend(0.1,0.3,c('younger age; smaller tumor','younger age; larger tumor','older age; smaller tumor','older age; larger tumor'),lty=c(1,1,2,2),col=c(1,2,1,2),yjust=0,bty='n')
+
+

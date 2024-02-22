@@ -1,0 +1,701 @@
+---
+title: "BIOST 2079 Lab3"
+subtitle: "Classification"
+author: "Crystal Zang"
+date: "Dec 8, 2023"
+output:
+  pdf_document:
+    toc: true
+    toc_depth: 2
+editor_options: 
+  chunk_output_type: console
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE, warning = FALSE)
+```
+
+
+\pagebreak
+
+```{r,eval=T,echo=T,message=FALSE,warning=FALSE}
+library(pROC) # build a ROC curve
+library(MASS) # lda, qda
+library(caret)
+library(tree) # tree based method
+library(randomForest) # bagging and random forest
+library(gbm) # boosting
+library(rpart.plot) # plot an rpart model
+```
+
+```{r}
+# import data
+dia <- read.csv(file = "diabetes.csv")
+
+# create a factor variable of Outcome and relevel 0 as negative, 1 as positive
+dia$Outcome_f <- as.factor(dia$Outcome)
+levels(dia$Outcome_f) <- c("neg", "pos")
+
+# split the data into training set and testing set
+set.seed(12315) #control randomness
+n <- nrow(dia)
+# choose 70% of the total data as training data, and the rest as testing data
+index.train <- sample(1:n,size = round(0.7*n))
+index.test <- (1:n)[-index.train]
+
+# factor outcome
+train <- dia[index.train,][,-9]
+test <- dia[index.test,][,-9]
+
+y.train <- train$Outcome_f
+y.test <- test$Outcome_f
+
+x.train <- train[,c(1:8)]
+x.test <- test[,c(1:8)]
+
+# numeric outcome 
+train.n <- dia[index.train,][,-10] #exclude the last variable Outcome_f from train data
+test.n <- dia[index.test,][,-10]  #exclude the last variable Outcome_f from test data
+```
+
+\pagebreak
+
+# 1. Logistic regression
+
+Using function `glm()` to fit generalized linear model.
+```{r}
+# fit the model in training set
+glm.fit <- glm(Outcome_f~., # "dot" indicate using all the variables in the data
+               data = train,
+               family = binomial)
+summary(glm.fit)
+
+# the coefficient of glm
+summary(glm.fit)$coef
+
+# the same
+#coef(glm.fit)
+```
+
+
+```{r}
+# predict the probability in testing set
+glm.test.pred <- predict(glm.fit, 
+                          newdata = x.test, 
+                          type="response")
+
+# view the fist 10 values of the predicted values
+glm.test.pred[1:10] 
+```
+
+`roc()` function is used to build a ROC curve.
+
+Area under the ROC curve using logistic regression = 0.881.
+
+```{r message=FALSE, warning=FALSE}
+# plot the test ROC curve
+roc.glm <- roc(y.test, glm.test.pred)
+plot(roc.glm,  col=1, print.auc=TRUE,main ="ROC curve -- Logistic Regression")
+```
+
+\pagebreak
+
+# 2. Linear discriminant analysis (LDA)
+
+We use function `lda()` in `MASS` package to conduct LDA.
+
+
+
+```{r}
+lda.fit <- lda(Outcome_f~.,data=train)
+lda.fit
+
+```
+
+\pagebreak
+
+From the stacked histogram of the values of the discriminant function for the samples from two outcome groups, we can see the two outcome groups have some clear discriminant. 
+ 
+ 
+```{r}
+### x-axis: linear combination of the fitted coefficients for two outcome groups
+plot(lda.fit) 
+```
+
+Area under the ROC curve using LDA = 0.885.
+
+
+```{r}
+# predict the probability
+lda.test.pred <- predict(lda.fit, newdata = x.test)
+
+
+head(lda.test.pred$x) #linear discriminants of each observation
+head(lda.test.pred$posterior) # matrix whose kth column contains the posterior probability that the corresponding observation belongs to the kth class
+head(lda.test.pred$class) #classified using a 50% posterior probability cutoff
+
+
+table(lda.test.pred$class) #predicted outcome
+table(lda.test.pred$class, y.test) #contingency table of predicted (row) and true (column) outcome
+
+
+
+# plot the test ROC curve
+roc.lda <- roc(y.test, as.numeric(lda.test.pred$x))
+plot(roc.lda,  print.auc=TRUE, 
+     col=2,main ="ROC curve -- LDA" )
+
+# the same way
+# roc(as.factor(y.test), lda.test.pred$posterior[,2],
+#     plot=TRUE,print.auc=TRUE,col=2,
+#     legacy.axe=TRUE,print.auc.y=0.5)
+```
+
+\pagebreak
+
+# 3. Quadratic Discriminant Analysis (QDA)
+
+Area under the ROC curve using QDA = 0.848.
+
+```{r}
+qda.fit <- qda(Outcome_f~.,data=train)
+qda.fit
+
+# predict the probability
+qda.test.pred <- predict(qda.fit, newdata = x.test)
+head(qda.test.pred$posterior)
+head(qda.test.pred$class)
+
+table(qda.test.pred$class, y.test)
+
+# plot the test ROC curve
+roc.qda <- roc(as.factor(y.test), qda.test.pred$posterior[,2])
+plot(roc.qda, print.auc=TRUE, col=3,main ="ROC curve -- QDA"  )
+```
+
+\pagebreak
+
+# 4. Compare the test set performance for logistic regression, LDA and QDA.
+
+LDA seems performing the best in this testing set.
+
+```{r}
+plot(roc.glm, legacy.axes = TRUE, 
+       main ="ROC curve -- Method Comparison" )
+plot(roc.lda, col = 2, add = TRUE)
+plot(roc.qda, col = 3, add = TRUE)
+auc <- c(roc.glm$auc[1], roc.lda$auc[1], roc.qda$auc[1])
+legend("bottomright",legend=paste0(c("logistic","lda","qda"), ":",round(auc,3)),col=c(1,2,3),lwd=2)
+```
+
+\pagebreak
+
+# 5. Cross validation to estimate the performance for LDA.
+
+Function `createFolds()` is a data splitting functions from package `caret`.
+
+```{r message=FALSE, warning=FALSE}
+set.seed(12315)
+# data splitting functions
+flds <- createFolds(1:n, k = 10, #number of folds
+                    list = TRUE, 
+                    returnTrain = FALSE)
+cv.auc<-rep(0,10)
+for(i in 1:10){
+  set.seed(12315 + i)
+  index.test <- flds[[i]]
+  index.train <- unlist(flds)[-index.test]
+  dia.train <- dia[index.train,][,-9]
+  dia.test <- dia[index.test,][,-9]
+  #fit model on training data (data excluding fold i)
+  lda.fit <- lda(Outcome_f~.,data=dia.train)
+  #test model on testing data  (fold i)
+  lda.pred <- predict(lda.fit, newdata = dia.test)
+  #obtain auc
+  cv.auc[i]<-auc(dia.test$Outcome_f,
+                 as.numeric(lda.pred$x))
+}
+
+#auc for 10 folds
+cv.auc
+
+# mean auc across all the folds
+mean(cv.auc)
+
+
+```
+
+
+\pagebreak
+
+# 6. Classification tree
+
+## 6.1. The CART approach
+
+* Step 1: Use recursive binary splitting to grow a large tree on the training data.
+
+```{r, fig.width = 12}
+tree.fit <- tree(Outcome_f~., train)
+plot(tree.fit)
+text(tree.fit, pretty=0, cex=1)
+title(main = "Unpruned Classification Tree")
+```
+
+
+```{r message=FALSE, warning=FALSE}
+# predict the class based on cutoff 0.5
+tree.pred <- predict(tree.fit, test, type="class")
+table(tree.pred, test$Outcome)
+(128+49)/(nrow(test))
+
+# predict the probability
+tree.pred <- predict(tree.fit, test, type="vector")
+tree.pred[1:5,]
+
+tree.pred <- tree.pred[,2]
+auc(y.test, as.numeric(tree.pred))
+```
+
+* Step 2:  Pruning tree
+
+Function `cv.tree()` runs a K-fold cross-validation to find the deviance or number of misclassifications as a function of the cost-complexity parameter k.
+
+
+```{r}
+set.seed(12315)
+cv.prun <- cv.tree(tree.fit, FUN=prune.misclass, K=10)
+```
+
+
+```{r}
+par(mfrow=c(1,2))
+plot(cv.prun$size, cv.prun$dev, 
+     xlab = "Size of tree", ylab = "Deviance", type="b")
+plot(cv.prun$k, cv.prun$dev, 
+     xlab = "Cost-complexity pruning parameter", 
+     ylab = "Deviance", type="b")
+```
+
+```{r}
+# index of tree with minimum error
+min_idx = which.min(cv.prun$dev)
+
+# number of terminal nodes in that tree (size of the tree)
+cv.prun$size[min_idx]
+```
+
+We use function `prune.misclass()` to obtain that tree from our original tree, and plot this smaller tree.
+
+```{r}
+
+prune.tree <- prune.misclass(tree.fit, best=3)
+summary(prune.tree)
+
+
+plot(prune.tree)
+text(prune.tree, pretty=0)
+title(main = "Pruned Classification Tree")
+```
+
+```{r}
+# predict the class based on Bayes classifier (cutoff 0.5)
+tree.pred=predict(prune.tree, test, type="class")
+table(tree.pred,y.test)
+(130+50)/(nrow(test))
+
+# predict the probability
+tree.pred <- predict(prune.tree, test,  
+                       type="vector")[,2]
+auc(y.test, as.numeric(tree.pred))
+
+```
+
+\pagebreak
+
+## 6.2. Bagging
+
+
+- The function `randomForest()` implements Breiman's random forest algorithm (based on Breiman and Cutler's original Fortran code) for classification and regression. 
+
+- Parameter `mtry`: the number of variables to randomly sample as candidates at each split.
+
+```{r}
+set.seed(12315)
+
+# bagging is simply a special case of a random forest with mtry = tot al number of predictors
+bag.tree <- randomForest(Outcome_f~., 
+                         data=train,
+                         mtry=8, # total number of predictors
+                         importance=TRUE)
+bag.tree
+
+yhat.bag <- predict(bag.tree, newdata=test)
+table(yhat.bag, y.test)
+(130+48)/(nrow(test))
+
+```
+
+\pagebreak 
+
+```{r}
+# variable importance
+bag.tree.impt <- as.data.frame(importance(bag.tree))
+bag.tree.impt <- rapply(object = bag.tree.impt, f = round, classes = "numeric", how = "replace", digits = 2) 
+
+print(bag.tree.impt)
+
+varImpPlot(bag.tree, main = "Variable Importance Using Bagging")
+```
+
+\pagebreak
+
+## 6.3. Random forest
+
+
+```{r}
+set.seed(12315)
+rf.tree <- randomForest(Outcome_f~.,
+                        data=train,
+                        mtry=3, 
+                        importance=TRUE)
+rf.tree
+yhat.rf <- predict(rf.tree, newdata = test)
+table(yhat.rf, y.test)
+(130+48)/(nrow(x.test))
+```
+
+\pagebreak
+
+```{r}
+# variable importance
+rf.tree.impt <- as.data.frame(importance(rf.tree))
+rf.tree.impt <- rapply(object = rf.tree.impt, f = round, classes = "numeric", how = "replace", digits = 2) 
+
+print(rf.tree.impt)
+
+varImpPlot(rf.tree, main = "Variable Importance Using Bagging")
+```
+
+\pagebreak
+
+## 6.4. Boosting
+
+Function `gbm()` fits generalized boosted regression models. 
+
+```{r}
+set.seed(12315)
+# gbm needs outcome to be numeric
+boost.tree <- gbm(Outcome~.,
+                  data=train.n,
+                  distribution="bernoulli",
+                  n.trees=5000,
+                  interaction.depth=3,
+                  shrinkage = 0.1)
+```
+
+```{r}
+# predict the probability for "1"
+yhat.boost <- predict(boost.tree, newdata=test.n,
+                      n.trees=5000, type="response")
+yhat.boost <- as.numeric(yhat.boost>0.5) # Bayes classifier
+table(yhat.boost,y.test)
+(121+47)/(nrow(test.n))
+```
+
+\pagebreak
+
+# 7. Using *train* function from *caret* package
+
+
+```{r}
+ctrl <- trainControl(method = "repeatedcv", #resampling method
+                     number = 10, #number of folds
+                     summaryFunction = twoClassSummary,
+                     classProbs = TRUE)
+```
+
+
+## 7.1. Logistic regression
+
+```{r}
+set.seed(1)
+model.glm <- train(x = x.train,
+                   y = y.train,
+                   method = "glm",
+                   metric = "ROC",
+                   trControl = ctrl)
+```
+
+## 7.2. Regularized logistic regression 
+
+```{r}
+glmnGrid <- expand.grid(.alpha = seq(0, 1, length = 6), #alpha: elastic net mixing parameter
+                        .lambda = exp(seq(-6, -2, length = 20)) #lambda: overall strength of the penalty
+                        ) 
+set.seed(1)
+model.glmn <- train(x = x.train,
+                    y = y.train,
+                    method = "glmnet",
+                    tuneGrid = glmnGrid,
+                    metric = "ROC",
+                    trControl = ctrl)
+```
+
+
+```{r}
+#plot(model.glmn)
+plot(model.glmn, xTrans = function(x) log(x)) 
+model.glmn$bestTune
+```
+
+## 7.3. LDA
+
+There is no tunning parameter for LDA and QDA.
+
+```{r}
+set.seed(1)
+model.lda <- train(x = x.train,
+                   y = y.train,
+                   method = "lda",
+                   metric = "ROC",
+                   trControl = ctrl)
+```
+
+## 7.4. QDA
+
+```{r}
+set.seed(1)
+model.qda <- train(x = x.train,
+                   y = y.train,
+                   method = "qda",
+                   metric = "ROC",
+                   trControl = ctrl)
+```
+
+## 7.5. Naive Bayes
+
+```{r, warning=FALSE}
+set.seed(1)
+nbGrid <- expand.grid(usekernel = c(FALSE,TRUE), #allows us to use a kernel density estimate for continuous variables versus a guassian density estimate
+                      fL = 1,  #with Laplace smoother
+                      adjust = seq(0,5,by = 1) #bandwidth of the kernel density (larger numbers mean more flexible density estimate),
+                      ) 
+
+model.nb <- train(x = x.train,
+                  y = y.train,
+                  method = "nb",
+                  tuneGrid = nbGrid,
+                  metric = "ROC",
+                  trControl = ctrl)
+model.nb$bestTune
+plot(model.nb)
+```
+
+## 7.6. KNN
+
+
+```{r, warning=FALSE}
+set.seed(1)
+
+model.knn <- train(x = x.train,  
+                   y = y.train,
+                   method = "knn",
+                   preProcess = c("center","scale"), # based on the distance, so center and scale is recommended
+                   tuneGrid = data.frame(k = seq(1,200,by=5)), # tuning parameter: more is better 
+                   metric = "ROC",
+                   trControl = ctrl)
+
+ggplot(model.knn)
+```
+
+
+## 7.7. CART
+
+Tuning parameter: cp (complexity parameter).
+
+```{r}
+set.seed(1)
+model.rpart <- train(x = x.train,
+                     y = y.train,
+                     method = "rpart",
+                     tuneGrid = data.frame(cp = exp(seq(-6,-3, len = 20))),
+                     trControl = ctrl,
+                     metric = "ROC")
+ggplot(model.rpart, highlight = TRUE)
+#rpart.plot(model.rpart$finalModel)
+```
+
+## 7.8. Random forests
+
+
+```{r}
+# Try more if possible
+rf.grid <- expand.grid(mtry = 1:6,
+                       splitrule = "gini",
+                       min.node.size = 1:6)
+set.seed(1)
+model.rf <- train(x = x.train,
+                  y = y.train,
+                  method = "ranger",
+                  tuneGrid = rf.grid,
+                  metric = "ROC",
+                  trControl = ctrl)
+
+ggplot(model.rf, highlight = TRUE)
+```
+
+## 7.9. Boosting (AdaBoost)
+
+```{r}
+gbmA.grid <- expand.grid(n.trees = c(2000,3000,4000),
+                        interaction.depth = 1:6,
+                        shrinkage = c(0.001,0.003,0.005),
+                        n.minobsinnode = 1)
+set.seed(1)
+# Adaboost loss function
+model.gbmA <- train(x = x.train,
+                    y = y.train, 
+                    tuneGrid = gbmA.grid,
+                    trControl = ctrl,
+                    method = "gbm",
+                    distribution = "adaboost",
+                    metric = "ROC",
+                    verbose = FALSE)
+
+ggplot(model.gbmA, highlight = TRUE)
+
+```
+
+
+
+
+## 7.10. Compare the Cross-validation performance
+
+
+```{r message=FALSE, warning=FALSE}
+res <- resamples(list(GLM = model.glm, GLMNET = model.glmn, 
+                      LDA = model.lda, QDA = model.qda,
+                      NB = model.nb, KNN = model.knn,
+                      rpart = model.rpart, rf = model.rf,
+                      gbmA = model.gbmA))
+summary(res)
+```
+
+```{r}
+theme1 <- trellis.par.get()
+theme1$plot.symbol$col = rgb(.2, .2, .2, .4)
+theme1$plot.symbol$pch = 16
+theme1$plot.line$col = rgb(1, 0, 0, .7)
+theme1$plot.line$lwd <- 2
+trellis.par.set(theme1)
+bwplot(res, layout = c(3, 1))
+```
+
+```{r}
+bwplot(res, metric = "ROC")
+```
+
+
+
+## 7.11. Compare test performance
+
+Now let's look at the test set performance.
+
+```{r message=FALSE, warning=FALSE}
+# use test data to evaluate the fitted model
+lda.pred <- predict(model.lda, newdata = test, type = "prob")[,2]
+glm.pred <- predict(model.glm, newdata = test, type = "prob")[,2]
+glmn.pred <- predict(model.glmn, newdata = test, type = "prob")[,2]
+nb.pred <- predict(model.nb, newdata = test, type = "prob")[,2]
+qda.pred <- predict(model.qda, newdata = test, type = "prob")[,2]
+knn.pred <- predict(model.knn, newdata = test, type = "prob")[,2]
+rpart.pred <- predict(model.rpart, newdata = test,
+                       type = "prob")[,2]
+rf.pred <- predict(model.rf, newdata = test, type = "prob")[,2]
+gbmA.pred <- predict(model.gbmA, newdata = test, type = "prob")[,2]
+
+
+roc.lda <- roc(y.test, lda.pred)
+roc.glm <- roc(y.test, glm.pred)
+roc.glmn <- roc(y.test, glmn.pred)
+roc.nb <- roc(y.test, nb.pred)
+roc.qda <- roc(y.test, qda.pred)
+roc.knn <- roc(y.test, knn.pred)
+roc.rpart <- roc(y.test, rpart.pred)
+roc.rf <- roc(y.test, rf.pred)
+roc.gbmA <- roc(y.test, gbmA.pred)
+
+auc <- c(roc.glm$auc[1], roc.glmn$auc[1], roc.lda$auc[1],
+         roc.qda$auc[1], roc.nb$auc[1], roc.knn$auc[1],
+         roc.rpart$auc[1], roc.rf$auc[1], roc.gbmA$auc[1])
+
+plot(roc.glm, col = 1, legacy.axes = TRUE, lwd = 1, main = "ROC -- Methods Comparison")
+plot(roc.glmn, col = 2, add = TRUE, lwd = 1)
+plot(roc.lda, col = 3, add = TRUE, lwd = 1)
+plot(roc.qda, col = 4, add = TRUE, lwd = 1)
+plot(roc.nb, col = 5, add = TRUE, lwd = 1)
+plot(roc.knn, col = 6, add = TRUE, lwd = 1)
+plot(roc.rpart, col = 7, add = TRUE, lwd = 1)
+plot(roc.rf, col = 8, add = TRUE, lwd = 1)
+plot(roc.gbmA, col = 9, add = TRUE, lwd = 1)
+
+modelNames <- c("glm","glmn","lda","qda","nb","knn", "rpart","rf","gbmA")
+legend("bottomright", legend = paste0(modelNames, ": ", round(auc,3)),
+       col = 1:9, lwd = 2)
+```
+\pagebreak
+
+# 8. Nested cross validaiton
+
+For methods with tuning parameter: nested cross validation
+
+Taking SVM as an example
+
+inner CV to decide tuning parameter
+
+outer CV for evaluate the performance
+
+```{r message=FALSE, warning=FALSE}
+library(e1071)
+nestcv_svm <- function(x, 
+                     cost_list,
+                     nfold.outer,
+                     nfold.inner){
+  flds <- createFolds(1:n, 
+                      k = nfold.outer, 
+                      list = TRUE, 
+                      returnTrain = FALSE)######create 10 fold sample
+  auc.svm <- rep(-1, nfold.outer)
+  for(i in 1:nfold.outer){
+    index.test <- flds[[i]]
+    index.train <- unlist(flds)[-index.test]
+    x.train <- x[index.train,]
+    x.test <- x[index.test,]
+    #######cost specify the cost of violating a margin, it is a tuning parameter
+    #######gamma is the parameter in radial kernel, here we fix gamma=2 for simplicity
+    tc <- tune.control(cross = nfold.inner)#####set number of cross validation
+    tune.out <- tune(svm, Outcome~., data=x.train, kernel="radial", 
+                  ranges=list(cost=cost_list,gamma=2),tunecontrol = tc)
+    #########after using inner CV tp get best parameter,
+    #########we fit the model to predict test data
+    pred=predict(tune.out$best.model,newdata=x.test)
+    #####check
+    #quantile(as.numeric(pred)[which(x.test$Outcome==0)])
+    #quantile(as.numeric(pred)[which(x.test$Outcome==1)])
+    auc.svm[i]<-auc(as.factor(x.test$Outcome),pred)
+  }
+  return(mean(auc.svm))
+}
+```
+
+```{r message=FALSE, warning=FALSE}
+dia <- read.csv(file = "diabetes.csv")
+nestcv_svm(dia,cost_list=c(0.1,1,10,100,1000),nfold.outer=3,nfold.inner=3)
+```
+
+
+
+
+
+
+

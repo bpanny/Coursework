@@ -1,0 +1,67 @@
+"0","glht_2 <- multcomp::glht(glm_2, linfct = rbind(""50-59yo exposed 1960-69 vs 60-69yo exposed 1970-77"" = c(0, 1, 1, -1, 0, 0, 1, -1)))"
+"0","(glht_2_summary <- summary(glht_2))"
+"1","
+	"
+"1"," "
+"1","Simultaneous Tests for General Linear Hypotheses
+
+"
+"1","Fit: "
+"1","glm(formula = y ~ . - n, family = poisson(link = ""log""), data = dat, 
+"
+"1","    offset = log(n))
+"
+"1","
+"
+"1","Linear Hypotheses:
+"
+"1","                                                       "
+"1"," Estimate"
+"1"," Std. Error"
+"1"," z value"
+"1"," Pr(>|z|)"
+"1","
+50-59yo exposed 1960-69 vs 60-69yo exposed 1970-77 == 0"
+"1","   0.3191"
+"1","     0.5266"
+"1","   0.606"
+"1","    0.545"
+"1","
+"
+"1","(Adjusted p values reported -- single-step method)"
+"1","
+
+"
+"0","glht_2_summary"
+"1","
+	"
+"1"," "
+"1","Simultaneous Tests for General Linear Hypotheses
+
+"
+"1","Fit: "
+"1","glm(formula = y ~ . - n, family = poisson(link = ""log""), data = dat, 
+"
+"1","    offset = log(n))
+"
+"1","
+"
+"1","Linear Hypotheses:
+"
+"1","                                                       "
+"1"," Estimate"
+"1"," Std. Error"
+"1"," z value"
+"1"," Pr(>|z|)"
+"1","
+50-59yo exposed 1960-69 vs 60-69yo exposed 1970-77 == 0"
+"1","   0.3191"
+"1","     0.5266"
+"1","   0.606"
+"1","    0.545"
+"1","
+"
+"1","(Adjusted p values reported -- single-step method)"
+"1","
+
+"

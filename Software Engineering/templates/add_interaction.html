@@ -1,0 +1,17 @@
+{% extends 'layout.html' %}
+
+{% block content %}
+    <h1>Add Interaction</h1>
+    <form method="POST" action="{{ url_for('add_interaction') }}">
+        <label for="pt_id">Patient ID:</label>
+        <input type="number" id="pt_id" name="pt_id" required><br><br>
+
+        <label for="staff_id">Staff ID:</label>
+        <input type="number" id="staff_id" name="staff_id" required><br><br>
+
+        <label for="staff_notes">Staff Notes:</label>
+        <textarea id="staff_notes" name="staff_notes" required></textarea><br><br>
+
+        <input type="submit" value="Submit">
+    </form>
+{% endblock %}

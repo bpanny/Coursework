@@ -1,0 +1,168 @@
+---
+title: "Applied Regression Data Analysis #7"
+author: "Benjamin Panny"
+date: "Due April 21, 2023"
+# bibliography: references.bib 
+output:
+  html_document:
+     toc: true
+     toc_float: true
+  pdf_document: default
+  word_document: default
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+# Load Libraries and Data
+
+```{r load, message=F, warning=F}
+library(tidyverse)
+library(table1)
+library(sandwich)
+library(lmtest)
+library(table1)
+library(patchwork)
+source("alr_utility.R")
+dat <- read_csv("DA6.csv") %>% mutate(health = factor(health, levels=1:3, 
+                                       labels=c("poor", "average", "excellent")),
+                      sex = factor(sex, levels=0:1,
+                                    labels=c("female","male")),
+                      adldiff = factor(adldiff, levels=0:1, 
+                                     labels=c("no", "yes")),
+                      race = factor(race, levels=0:1,
+                                     labels=c("other","Black")),
+                      privins = factor(privins, levels=1:0,
+                                     labels=c("no","yes")))
+
+```
+
+The data were obtained from a survey that was aimed to investigate the factors associated with the number of physician office visits the past 2 years. The surveys contain interview from 2,500 people in the United States. They include demographics, health condition, and insurance information of each interviewee.
+
+# Fit Poisson Model
+
+1.	Using glm with family poisson and log link, fit a Poisson model that estimates the expected number of physician office visits adjusting for health status, gender, race, condition of limiting activities of living, race, private insurance information, age, chronic conditions, and education.  Assess if the assumptions of the Poisson model you fit are violated. In addition, assess if you think there are excess zeros.  Explain your answer.
+
+```{r}
+glm_1 <- glm(visit ~ ., family = poisson(link = 'log'), data = dat)
+exp(glm_1$coefficients[2])
+```
+
+There appear to be several significant coefficients in this full model, denoted with significance codes of 0.05 or less. Age appears to have a significant effect on the visit count outcome, therefore it is unclear whether or not it should be used as an offset for the model.
+
+Additionally,
+
+```{r, visit_zeros}
+# Create the table1
+tbl1 <- table1(~ ., data = dat)
+tbl1
+```
+
+```{r, visit_zeros_2}
+AER::dispersiontest(glm_1, trafo=NULL)
+ggplot(dat, aes(x = visit, fill = health)) + geom_bar(stat = 'count')
+
+dat$privins_label <- paste("Private Insurance Indicator:", dat$privins)
+
+dat %>% ggplot(aes(x = visit, fill = health)) +
+  geom_bar(width = 0.95) +
+  facet_wrap(~privins_label) +
+  theme_minimal()
+quantiles <- dat$visit %>% quantile(., c(.05, .10, .125,.25,.5,.75,.875,.95), type = 1, names = TRUE)
+kableExtra::kable(tibble(Percentile = names(quantiles), `Number of Physician Office Visits` = quantiles)) %>% kableExtra::kable_styling()
+dat_cdf <- dat %>% group_by(visit) %>% summarise(n=n()) %>% mutate(cumulative = cumsum(n))
+plot(dat_cdf$visit, dat_cdf$cumulative)
+paste("sample size:", dat_cdf$cumulative[nrow(dat_cdf)])
+```
+
+
+There are 141 observations with zero physician office visits out of 2500 observations, accounting for between 5% and 10% of all observations. This does not necessarily cause a problem with overdispersion. 
+
+There is statistically significant evidence that dispersion is not greater than 1, which violates the assumption of equal mean and variance for the poisson regression model. 
+
+# Negative Binomial Regression and LRT
+
+2.	Using negative binomial regression refit the model, perform a likelihood ratio test or Wald test to identify whether health status, gender, race, condition of limiting activities of living, race, private insurance information, age, chronic conditions, and education are univariably associated with the mean number of physician office visits. (This means to fit single models, one for each of those covariates).
+
+```{r, nb}
+nb_1 = MASS::glm.nb(visit ~ ., data = dat)
+summary(nb_1)
+```
+
+```{r d_nb}
+dispersion_parameter = sum(resid(nb_1,type ="pearson")^2)/nb_1$df.residual
+
+dispersion_parameter
+```
+
+The dispersion parameter isn't much higher than one, but is 42.3% higher than 1.
+
+```{r, tbl_nb}
+fit_1 <- update(nb_1, . ~ age)
+fit_2 <- update(nb_1, . ~ health)
+fit_3 <- update(nb_1, . ~ sex)
+fit_4 <- update(nb_1, . ~ adldiff)
+fit_5 <- update(nb_1, . ~ race)
+fit_6 <- update(nb_1, . ~ privins)
+fit_7 <- update(nb_1, . ~ cond)
+fit_8 <- update(nb_1, . ~ edu)
+fit_null <- update(nb_1, . ~ 1)
+options(scipen=999)
+tribble(~predictor, ~`p-value`,
+       as.character(fit_1$terms)[-(1:2)], anova(fit_1, fit_null)$`Pr(Chi)`[2],
+       as.character(fit_2$terms)[-(1:2)], anova(fit_2, fit_null)$`Pr(Chi)`[2],
+       as.character(fit_3$terms)[-(1:2)], anova(fit_3, fit_null)$`Pr(Chi)`[2],
+       as.character(fit_4$terms)[-(1:2)], anova(fit_4, fit_null)$`Pr(Chi)`[2],
+       as.character(fit_5$terms)[-(1:2)], anova(fit_5, fit_null)$`Pr(Chi)`[2],
+       as.character(fit_6$terms)[-(1:2)], anova(fit_6, fit_null)$`Pr(Chi)`[2],
+       as.character(fit_7$terms)[-(1:2)], anova(fit_7, fit_null)$`Pr(Chi)`[2],
+       as.character(fit_8$terms)[-(1:2)], anova(fit_8, fit_null)$`Pr(Chi)`[2])
+```
+
+According to these univariate likelihood ratio tests, perceived health, activity limitations, number of chronic conditions, private insurance, race, and number of years of education are associated with mean number of physician office visits.
+
+# Multivariable Model
+
+3.	Fit a multivariable model that describes the data given the information from #2 (don’t consider interactions) with only significant predictors with univariate regression and answer the following question:
+
+Adjusted for the other independent variables, what is the estimated ratio and 95% CI of number of physician office visits for 50 year old males who reported an excellent health condition and 2 chronic conditions to 50 year old females who reported an average health condition and 5 chronic conditions. 
+
+
+```{r, new_glm}
+glm_2 <- glm(visit ~ health + adldiff + race + privins + cond + edu, family = poisson(link = 'log'), data = dat)
+summary(glm_2)
+glm_2_w_sex <- glm(visit ~ sex + health + adldiff + race + privins + cond + edu, family = poisson(link = 'log'), data = dat)
+
+glht_2 <- multcomp::glht(glm_2, linfct = rbind("50yo M excellent health 2 chronic conditions vs 50 yo F average health 5 chronic conditions" = c(0, -1, 1, 0, 0, 0, -3, 0)))
+(glht_2_summary <- summary(glht_2))
+glht_2_w_sex <- multcomp::glht(glm_2_w_sex, linfct = rbind("50yo M excellent health 2 chronic conditions vs 50 yo F average health 5 chronic conditions" = c(0, 1, -1, 1, 0, 0, 0, -3, 0)))
+(glht_2_w_sex_summary <- summary(glht_2_w_sex))
+```
+
+Sex and age were not significant in the univariate models so they were not included in the multivariate model. Even if they were, they would make little difference, as could be shown. As such, with the multivariate model that was fit based on significant univariate model predictors, the linear hypothesis from the model without sex or age is describe here: The estimated rate ratio for 50yo males in excellent health with 2 chronic conditions vs 50yo females with average health and 5 chronic conditions is $\exp(-0.7015) = 0.496$. This means 50yo males in excellent health with 2 chronic conditions have an estimated 49.6% (about half) of the total visits that 50yo females with average health and 5 chronic conditions.
+
+```{r, glht_2_confidence_interval}
+estimate <- glht_2_summary$test$coefficients[1]
+standard_error <- glht_2_summary$test$sigma[1]
+lower_bound_log <- estimate - (1.96 * standard_error)
+upper_bound_log <- estimate + (1.96 * standard_error)
+lower_bound_rate_ratio <- exp(lower_bound_log)
+upper_bound_rate_ratio <- exp(upper_bound_log)
+cat("95% Confidence Interval for the Rate Ratio:", "(", lower_bound_rate_ratio, ",", upper_bound_rate_ratio, ")")
+```
+
+A 95% CI in this context indicates our procedure will capture the true rate ratio 95% of the time. On this occurence, we can see the confidence interval contains values significantly less than 1, which coheres with our observation of a statistically significantly different from one estimated rate ratio.
+
+# Graph of standardized residuals vs fitted visits
+
+4.	Generate the graph of the standardized residuals vs the fitted visits weighted by the influence statistic with cook's distance.
+
+```{r, graph_1}
+alr_plot_residual(glm_2, x="Predicted", bubble=T)
+alr_plot_cookd(glm_2, x="Predicted")
+```
+
+There are several points that are beyond the boundaries of non-influential points. The observation with the most influence over the predicted average physician office visits was observation 1284
+
+

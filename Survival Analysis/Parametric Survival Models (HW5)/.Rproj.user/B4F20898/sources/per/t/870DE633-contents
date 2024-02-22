@@ -1,0 +1,26 @@
+
+setwd("C:\\Users\\yingding\\OneDrive - University of Pittsburgh\\Biost2066\\Codes")
+# read in WHAS100 data
+whas100 <- read.csv("./whas100.csv",head=T)
+head(whas100)
+
+library(survival)
+
+# fit an exponential regression with a single covariate sex
+fit.exp.1 <- survreg(Surv(lenfol/365.25,fstat) ~ sex, dist="exp", data=whas100)
+summary(fit.exp.1)
+
+# fit an exponential regression with 4 covariates
+fit.exp.2 <- survreg(Surv(lenfol/365.25,fstat) ~ sex+age+sex*age+bmi, dist="exp", data=whas100)
+summary(fit.exp.2)
+
+
+# fit a Weibull regression with 4 covariates
+fit.weib <- survreg(Surv(lenfol/365.25,fstat) ~ sex+age+sex*age+bmi, dist="weibull", data=whas100)
+summary(fit.weib)
+
+# fit a log-logistic regression with 4 covariates
+fit.ll <- survreg(Surv(lenfol/365.25,fstat) ~ sex+age+sex*age+bmi, dist="loglogistic", data=whas100)
+summary(fit.ll)
+
+

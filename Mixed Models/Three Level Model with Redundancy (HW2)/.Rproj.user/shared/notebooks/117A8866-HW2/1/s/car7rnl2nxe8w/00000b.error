@@ -1,0 +1,1 @@
+{"frames":[{"func":"egfr %>% ggplot2(aes(x = egfr))","file":"","line_number":0,"end_line_number":0,"character_number":0,"end_character_number":0}],"message":"Error in ggplot2(., aes(x = egfr)) : could not find function \"ggplot2\"\n"}

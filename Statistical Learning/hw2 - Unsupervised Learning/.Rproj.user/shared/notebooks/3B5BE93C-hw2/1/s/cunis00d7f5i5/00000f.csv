@@ -1,0 +1,5 @@
+"0","# distance between patients"
+"0","row_distance = dist(arrest, method = ""euclidean"")"
+"0","# try different linkage"
+"0","hc.complete <- hclust(d = row_distance, method = ""complete"")"
+"0","plot(hc.complete)"

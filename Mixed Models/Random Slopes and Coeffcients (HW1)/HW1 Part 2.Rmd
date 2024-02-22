@@ -1,0 +1,43 @@
+---
+title: "HW1 Part 2"
+author: "Benjamin Panny"
+date: "`r Sys.Date()`"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+library(tidyverse)
+library(lme4)
+enterprise <- read_csv("enterprise.csv")
+enterprise <- enterprise %>% 
+  mutate(uclms_diff = uclms - uclms1)
+```
+
+# Random Intercept model with ICC
+
+```{r}
+ri_fit_mle <- lmerTest::lmer(uclms_diff ~ 1 + time*ez + (1 | area), data = enterprise, REML = FALSE)
+summary(ri_fit_mle)
+ri_fit_reml <- lmerTest::lmer(uclms_diff ~ 1 + time*ez + (1 | area), data = enterprise)
+summary(ri_fit_reml)
+performance::icc(ri_fit_reml)
+```
+
+# Random Intercept and Random Coefficient model
+
+```{r}
+rc_fit_mle <- lmerTest::lmer(uclms_diff ~ 1 + time*ez + (1 + time || area), data = enterprise, REML = FALSE)
+summary(rc_fit_mle)
+rc_fit_reml <- lmerTest::lmer(uclms_diff ~ 1 + time*ez + (1 + time || area), data = enterprise)
+summary(ri_fit_reml)
+# performance::icc(ri_fit_reml)
+```
+
+```{r}
+ranef(rc_fit_reml)
+performance::icc(rc_fit_reml)
+```
+
+
+

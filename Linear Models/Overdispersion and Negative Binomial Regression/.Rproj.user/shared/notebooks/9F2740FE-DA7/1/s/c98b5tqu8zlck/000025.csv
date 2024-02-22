@@ -1,0 +1,2 @@
+"0","dat_cdf <- dat %>% group_by(visit) %>% summarise(n=n()) %>% mutate(cumulative = cumsum(n))"
+"0","plot(dat_cdf$visit, dat_cdf$cumulative)"

@@ -1,0 +1,8 @@
+"0","l <- 0.001; a <- 2"
+"0","x <- seq(0, 100, by = .01)"
+"0","tibble(x = x, Survival = weibull_survival(x, l, a), Hazard = weibull_hazard(x, l, a)) %>% "
+"0","  pivot_longer(!x,"
+"0","               names_to = ""Curve"") %>% "
+"0","  ggplot(aes(x = x, y = value, color = Curve)) +"
+"0","  geom_line() +"
+"0","  geom_vline(xintercept = c(30, 45, 60))"

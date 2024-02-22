@@ -1,0 +1,7 @@
+"0",""
+"0","egfr %>% "
+"0","  ggplot2(aes(x = egfr))+"
+"0","  geom_histogram()+"
+"0","  facet_wrap(~site)"
+"2","Error in ggplot2(., aes(x = egfr)) : could not find function ""ggplot2""
+"

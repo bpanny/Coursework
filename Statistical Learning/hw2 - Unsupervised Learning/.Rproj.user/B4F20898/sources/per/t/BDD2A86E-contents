@@ -1,0 +1,570 @@
+---
+title: "| BIOST2079 Lab2 \n| Dimension reduction and Clustering \n"
+author: "Xinlei Chen"
+date: "November 17th, 2023"
+output: pdf_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE, warning = FALSE)
+```
+
+
+```{r,eval=T,echo=T,message=FALSE,warning=FALSE}
+library(factoextra) # visualize
+library(Rtsne) # t-SNE
+library(NbClust) # determining the best number of clusters
+library(cluster) # Gap Statistic
+library(mclust) # Adjusted Rand Index
+library(gplots) # heatmap
+library(sparcl) # spare k-means
+```
+
+```{r}
+# import the data
+load(file = "lab_GSE6891.Rdata")
+x <- data$x
+label <- data$label
+#head(x)
+dim(x)
+# check for missingness
+sum(is.na(x))
+```
+
+\pagebreak
+
+# 1. Dimension reduction
+
+## 1.1 Principal component analysis (PCA)
+
+The function `prcomp()` can be used to perform PCA.
+
+```{r}
+pca <- prcomp(x, center = TRUE, scale. = TRUE)
+
+# matrix of variable loadings 
+# head(pca$rotation) 
+dim(pca$rotation)
+
+# PCA demension 1 
+pca1 <- pca$x[,1] 
+# PCA demension 2 
+pca2 <- pca$x[,2] 
+```
+
+### Visualize PCA
+
+Although class lables were not used in PCA analysis, the three classes are well-separated based on just the first two PCs.
+
+```{r}
+label <- as.factor(label)
+colors <- rainbow(length(unique(label)))
+names(colors) <- unique(label)
+par(mgp=c(2.5,1,0))
+plot(pca1, pca2, 
+     t='n', main="PCA", 
+     xlab="PCA dimension 1", ylab="PCA dimension 2",
+     "cex.main"=2, "cex.lab"=1.5)
+text(pca1, pca2, labels=label, col =colors[label],cex=2.5)
+```
+
+### Variance explanation
+
+```{r}
+# variance and cumulative variance explained
+summary(pca)
+
+# the variance of the principal components
+pr.var <- (pca$sdev)^2 
+
+# prportion of variance explained (PVE)
+pve <- pr.var/sum(pr.var)
+
+
+# plot proportion of variance explained
+barplot(pve, 
+        xlab = " Principal Component ", 
+        ylab = "Proportion of Variance Explained ", 
+        ylim = c(0,1), type = 'b')
+
+plot(pve, 
+     xlab = " Principal Component ", 
+     ylab = "Proportion of Variance Explained  ", 
+     ylim=c(0,1), 
+     type = 'b', 
+     cex = 2.2, "cex.lab" = 1.5)
+
+# plot cumulative proportion of variance explained
+plot(cumsum(pve), 
+     xlab="Principal Component", 
+     ylab="Cumulative PVE ",
+     ylim=c(0,1),type='b',cex=2.5,"cex.lab"=1.5)
+```
+
+### Other options to visualize PCA
+
+The function `fviz_eig()` plots the eigenvalues/variances against the number of dimensions.
+
+```{r}
+fviz_eig(pca, addlabels = TRUE)
+```
+
+The function `fviz_pca_ind()` can be used to obtain the graph of individuals. 
+
+```{r, fig.height=4}
+fviz_pca_ind(pca,
+             habillage = label,
+             label = "none",
+             addEllipses = TRUE)
+```
+
+\pagebreak
+
+## 1.2 Multidimensional scaling (MDS)
+
+You can perform a classical MDS using the `cmdscale()` function.
+
+```{r}
+# euclidean distances between the rows
+d <- dist(x) 
+
+# MDS
+fit <- cmdscale(d, eig=TRUE, k=2) 
+
+# view results
+head(fit$points) # 89*2
+```
+
+### Visualize MDS
+
+```{r}
+# plot solution of MDS
+plot(fit$points[,1], fit$points[,2], 
+     t='n', main="MDS", 
+     xlab="MDS dimension 1", ylab="MDS dimension 2",
+     "cex.main"=2, "cex.lab"=1.5)
+text(fit$points[,1],fit$points[,2], 
+     labels=label, col=colors[label], cex=2.5)
+```
+
+
+\pagebreak
+
+## 1.3 t-distributed stochastic neighbor embedding (t-SNE)
+
+You can perform a t-SNE using the `Rtsne()` function.
+
+```{r}
+set.seed(1) # for reproducibility
+tsne <- Rtsne(x, dims = 2, perplexity=10, 
+              verbose=F, max_iter = 500)
+
+# new representations for the objects
+head(tsne$Y) 
+```
+
+
+### Visualize t-SNE
+
+```{r}
+label <- as.factor(label)
+colors <- rainbow(length(unique(label)))
+names(colors) <- unique(label)
+par(mgp=c(2.5,1,0))
+plot(tsne$Y, t='n', 
+     main="tSNE", 
+     xlab="tSNE dimension 1", ylab="tSNE dimension 2",
+     "cex.main"=2, "cex.lab"=1.5)
+text(tsne$Y, labels=label, col=colors[label],cex=2.5)
+```
+
+
+\pagebreak
+
+# 2. Clustering
+
+## 2.1 K-means clustering
+
+### 2.1.1 Estimate K
+
+#### Method 1: Catch the elbow points.
+
+The best K lies in the elbow point
+
+```{r}
+# show this first in a simple data
+# simulate a data x1 (n=100)
+set.seed(12315)
+x1 = rbind(matrix(rnorm(50),ncol = 2),
+          matrix(c(rnorm(25),(rnorm(25)+5)),ncol = 2),#+5
+          matrix(c(rnorm(50)+5,rnorm(50)-3),ncol = 2))#-3
+
+
+plot(x1[,1],x1[,2],xlab="",ylab="")
+title("three-clusters data")
+```
+
+You can use `kmeans()` function to perform K-means clustering.
+
+```{r}
+# within-cluster sum of squares
+WCSS<-rep(0,10)
+# choose k:
+for(k in 1:10){
+  # Perform k-means clustering on a data matrix.
+  res<-kmeans(x = x1, centers = k, nstart = 100)
+  # Total within-cluster sum of squares
+  WCSS[k]<-res$tot.withinss 
+}
+```
+
+```{r}
+#plot WCSS vs different K values
+plot(1:10, WCSS, 
+     type="o", col="black",
+     xlab="K", ylab="WCSS")
+title("WCSS for three-clusters data")
+points(3, WCSS[3], col="red",cex=2,pch=20)
+```
+
+K=3 is the elbow point.
+
+See in our AML example:
+
+```{r}
+# within-cluster sum of squares
+WCSS<-rep(0,10)
+# choose k:
+for(k in 1:10){
+  # Perform k-means clustering on a data matrix.
+  res<-kmeans(x = x, centers = k, nstart = 100)
+  # Total within-cluster sum of squares
+  WCSS[k]<-res$tot.withinss 
+}
+
+plot(1:10, WCSS, type="o",col="black",
+     xlab="K",ylab="WCSS")
+title("WCSS for three-clusters data")
+#points(3,WCSS[3],col="red",cex=2,pch=20)
+```
+
+#### Method 2: Summary indexs
+
+Here I choose CH index, Hartigan index, KL index and Silhouette index to estimate K.
+
+```{r}
+# We can use NbClust package to calculate the four indices
+# CH index
+CH <- NbClust(data=x, min.nc = 2, max.nc = 10, 
+              method="kmeans", index="ch")
+
+plot(2:10, CH$All.index, type="o",
+     xlab="number of clusters", ylab="CH index",
+     "cex.lab"=1.5, cex=2.5)
+CH$Best.nc[1]
+# CH$Best.partition  #we can also get Partition that 
+#### corresponds to the best number of clusters
+
+# Hartigan index
+H <- NbClust(data=x, min.nc = 2, max.nc = 10, 
+             method="kmeans", index="hartigan")
+
+plot(2:10, H$All.index, type="o",
+     xlab="number of clusters",ylab="Hartigan index",
+     "cex.lab"=1.5, cex=2.5)
+abline(h=10,lty=2,lwd=3) # stop when H(k) < 10
+H$Best.nc[1]
+
+# KL index
+KL <- NbClust(data=x, min.nc = 2, max.nc = 10,
+              method="kmeans",index="kl")
+plot(2:10, KL$All.index, type="o",
+     xlab="number of clusters",ylab="KL index",
+     "cex.lab"=1.5, cex=2.5)
+KL$Best.nc[1]
+
+# Silhouette index
+Sil <- NbClust(data=x, min.nc = 2, max.nc = 10,
+               method="kmeans", index="silhouette")
+plot(2:10, Sil$All.index, type="o",
+     xlab="number of clusters",ylab="Silhouette index",
+     "cex.lab"=1.5, cex=2.5)
+Sil$Best.nc[1]
+```
+
+From all these 4 indexs, we choose k=3 clusters.
+
+#### Method 3: Gap statistics
+
+You can use `clusGap()` function to perform Gap statistics for Estimating the Number of Clusters
+
+```{r}
+gapst <- clusGap(x, FUN = kmeans, nstart = 100, 
+                     K.max = 10, B = 50, 
+                     spaceH0 ="scaledPCA")
+plot(gapst, xlab = "number of cluster k", main = "Gap statistics")
+gaprs <- with(gapst,
+                  maxSE(Tab[,"gap"],Tab[,"SE.sim"]))
+gaprs
+# gaprs <- maxSE(gapst$Tab[,"gap"],gapst$Tab[,"SE.sim"])
+# print(gaprs, method = "firstmax")
+```
+
+
+### 2.1.2 Implemente K-means by using optimal K 
+
+All the methods tell us K=3. Now perform K-means clustering under K=3
+
+```{r}
+set.seed(1)
+km <- kmeans(x, centers = 3, nstart=10)
+```
+
+### 2.1.3 Clutering evaluation
+
+Adjusted Rand index: percentage of concordance
+
+`adjustedRandIndex()` function: Computes the adjusted Rand index comparing two classifications.
+
+```{r}
+km_label <- km$cluster
+table(km_label,label)
+adjustedRandIndex(km_label, label)
+```
+
+
+### 2.1.4 More options to visulaze k-means clustering
+
+Other options for dertermining and visualizing the optimal number of clusters: function `fviz_nbclust()`, `fviz_gap_stat()` and `fviz_cluster()`.
+
+```{r}
+fviz_nbclust(x, FUNcluster = kmeans,
+             method = "silhouette")+
+labs(subtitle = "Silhouette index",cex=2.5)
+```
+
+```{r}
+fviz_nbclust(x, kmeans, nstart = 25,
+             method = "gap_stat", nboot = 50) +
+labs(subtitle = "Gap statistic method",cex=2.5)
+
+fviz_gap_stat(gapst, linecolor = "steelblue",
+              maxSE = list(method = "firstSEmax", SE.factor = 1))
+```
+
+```{r}
+# Observations are represented by points in the plot, using principal components
+km_vis <- fviz_cluster(list(data = x, cluster = km_label), 
+                       ellipse.type = "convex", 
+                       geom = c("point","text"),
+                       labelsize = 5, 
+                       palette = "Dark2") + labs(title = "K-means") 
+km_vis
+```
+
+
+\pagebreak
+
+## 2.2 Hierarchical clustering 
+
+### 2.2.1 Dengrogram
+
+Here we use the Euclidean distance and different types of linkage.
+
+You can use `hclust()` function to perform Hierarchical Clustering
+
+```{r}
+# distance between patients
+row_distance = dist(x, method = "euclidean")
+
+# try different linkage
+hc.ward = hclust(d = row_distance, method = "ward.D")
+hc.complete <- hclust(d = row_distance, method = "complete")
+hc.average <- hclust(d = row_distance, method = "average")
+hc.single <- hclust(d = row_distance, method = "single")
+hc.centroid <- hclust(d = row_distance, method = "centroid")
+```
+
+From the cluster dendrogram, we can cut the dendrogram to have 3 clusters.
+
+```{r}
+# dengrogram for patients (row)
+plot(hc.ward)
+# plot(hc.average)
+# plot(hc.complete)
+# plot(hc.single)
+# plot(hc.centroid)
+```
+
+
+### 2.2.2 Clustering evaluation
+
+Using Adjusted Rand index to do clustering evaluation.
+
+```{r}
+hc_label<-cutree(hc.ward, k = 3)
+# hc_label<-cutree(hc.complete, k = 3)
+# hc_label<-cutree(hc.average, k = 3)
+# hc_label<-cutree(hc.single, k = 3)
+# hc_label<-cutree(hc.centroid, k = 3)
+hc_label
+table(hc_label,label)
+adjustedRandIndex(hc_label, label)
+```
+
+### 2.2.3 More options to visulaze hierarchical clustering
+
+The function `fviz_dend()` can be applied for enhanced visualization of dendrogram.
+
+```{r, fig.width=7}
+fviz_dend(hc.ward, 
+          k = 3,       
+          cex = 0.3, 
+          palette = "jco", 
+          color_labels_by_k = TRUE, 
+          rect = TRUE, 
+          rect_fill = TRUE, 
+          rect_border = "jco", 
+          labels_track_height = 3.5)
+```
+
+To display more details, heatmap is an useful technique to visualize you cluster result. 
+
+```{r, fig.width = 12, fig.height=7}
+row_distance = dist(x, method = "euclidean")
+row_cluster = hclust(row_distance, method = "ward.D")
+col_distance = dist(t(x), method = "euclidean")
+col_cluster = hclust(col_distance, method = "ward.D")
+
+heatmap.2(x,
+          main = paste("heatmap of leukemia data",sep=""),
+          notecol="black",      # change font color of cell labels to black
+          density.info="none",  # turns off density plot inside color legend
+          trace="none", # turns off trace lines inside the heat map
+          margins =c(12,9),
+          RowSideColors = as.character(label),
+          col=greenred, # use on color palette defined earlier
+          dendrogram="both",     
+          Rowv=as.dendrogram(row_cluster),
+          Colv=as.dendrogram(col_cluster))  
+
+```
+
+\pagebreak
+
+## 2.3 Guassian mixture clustering
+
+You can use `Mclust()` function to perform Gaussian Mixture Modelling for Model-Based Clustering, Classification, and Density Estimation.
+
+Check more in `?mclustModelNames`
+
+```{r}
+fit = Mclust(x, G=1:9, modelNames="EII")
+summary(fit)
+
+# bic for selected model
+fit$bic 
+# The optimal number of mixture components (K)
+fit$G 
+# A matrix of the probability that an observation in the test data belongs to the a class.
+# fit$z
+# The classification result
+# fit$classification
+```
+
+### Clustering evaluation
+
+```{r}
+mix_label <- fit$classification
+table(mix_label,label)
+adjustedRandIndex(mix_label, label)
+```
+
+\pagebreak
+
+# 3. Advanced topic: Sparse K-means
+
+Do clustering and variable selection at the same time.
+
+`KMeansSparseCluster.permute()` function : Choose tuning parameter for sparse k-means clustering
+
+`KMeansSparseCluster()` function: Performs sparse k-means clustering, you must specify a number of clusters K and an L1 bound on w, the feature weights.
+
+```{r}
+km.perm <- KMeansSparseCluster.permute(x, K=3, nperms=50, silent = TRUE)
+# best weight
+km.perm$bestw 
+
+res.sparsekmeans <- 
+  KMeansSparseCluster(x, K=3, # specify K
+                      wbounds = km.perm$bestw, # specify weight
+                      nstart = 100, #the number of random starts for the k-means
+                      silent = FALSE, 
+                      maxiter=6) # the maximum number of iterations
+```
+
+```{r}
+# the weighting for each variable 
+res.sparsekmeans[[1]]$ws
+plot(res.sparsekmeans[[1]]$ws,xlab = "Genes", ylab = "Weight" )
+```
+
+### Clustering evaluation
+
+```{r}
+# the clustering obtained
+skm_label <- res.sparsekmeans[[1]]$Cs
+table(skm_label, label)
+adjustedRandIndex(skm_label, label)
+```
+
+### Visualization by heatmap
+
+```{r}
+# only keep those genes with feature weights >0
+x1<-x[,which(res.sparsekmeans[[1]]$ws>0)]
+dim(x1)# force 20 features to exactly zero
+
+row_distance = dist(x1, method = "euclidean")
+row_cluster = hclust(row_distance, method = "ward.D")
+col_distance = dist(t(x1), method = "euclidean")
+col_cluster = hclust(col_distance, method = "ward.D")
+heatmap.2(x1,
+          main = paste("heatmap of leukemia data",sep=""),
+          notecol="black",      # change font color of cell labels to black
+          density.info="none",  # turns off density plot inside color legend
+          trace="none", # turns off trace lines inside the heat map
+          margins =c(12,9),
+          RowSideColors = c(rep("gray", 33), rep("blue", 21),rep("black", 35)),
+          col=greenred,       # use on color palette defined earlier
+          dendrogram="both",    
+          Rowv=as.dendrogram(row_cluster),
+          Colv =as.dendrogram(col_cluster))         
+```
+
+
+\pagebreak
+
+# 4. Compare clustering methods in AML example
+
+Since all the clustering methods perform the same, so the ARIs remain the same. 
+
+```{r}
+# K-means
+table(km_label,label)
+adjustedRandIndex(km_label, label)
+# Hierarchical 
+table(hc_label,label)
+adjustedRandIndex(hc_label, label)
+# Guassian mixture clustering
+table(mix_label,label)
+adjustedRandIndex(mix_label, label)
+# Sparse K-means
+table(skm_label, label)
+adjustedRandIndex(skm_label, label)
+# Do hierarchical clustering and K-means agree with each other?
+table(hc_label, km_label)
+adjustedRandIndex(hc_label, km_label)
+```
+
+

@@ -1,0 +1,244 @@
+---
+title: "HW2"
+author: "Benjamin Panny"
+date: "`r Sys.Date()`"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+library(tidyverse)
+library(lmerTest)
+library(VIM)
+egfr <- read_csv(here::here("egfr.csv"))
+```
+
+
+```{r}
+egfr %>% count(site, surgery)
+egfr %>% count(subject)
+egfr %>% count(time)
+```
+
+```{r}
+aggr(egfr)
+egfr_wide <- egfr %>%
+  select(subject, surgery, time, measure = egfr) %>% 
+  pivot_wider(names_from = "time",
+              names_prefix = "visit_",
+              values_from = "measure")
+aggr(egfr_wide)
+```
+
+```{r}
+egfr %>% 
+  mutate(income3 = factor(income3),
+         surgery = factor(surgery),
+         site = factor(site)) %>% 
+  GGally::ggpairs(columns = c(1, 4:8))
+```
+```{r}
+egfr %>% 
+  ggplot(aes(x = egfr))+
+  geom_histogram()+
+  facet_wrap(~site)
+```
+
+
+
+Variable	Description
+site	Clinical site ID 
+subject	Subject ID
+surgery	Bariatric Surgery Type
+1 = "RYGB", 2 = "LAGB" <- Roux-en-Y gastric bypass surgery and Laparoscopic adjustable gastric band surgery
+time	Visit time in months
+0 = Baseline, 12 = 12-Month, 24 = 24-Month, 36 = 36-Month
+age	Participant's age (years) at baseline
+income3	Household income at each visit
+0= Less than 25,000, 1= 25,000-99,999, 2= 100,000 or greater
+egfr	Estimated glomerular filtration rate (eGFR) at each visit (lower is worse, above 90 is OK)
+
+Investigators are interested in evaluating whether one type of surgery resulted in greater improvement in eGFR than the other type of surgery, and whether eGFR values were consistently better over time for one type of surgery as compared to the other, assuming that the effects of adjusting covariates on eGFR were equal in different surgery types. Adjusting covariates include age and income level. Note that income level is a time-varying measurement.
+
+
+```{r}
+egfr %>%
+  mutate(surgery = if_else(surgery == 1, "RYGB", "LAGB")) %>% 
+  group_by(surgery, time) %>% 
+  summarise(avg = mean(egfr, na.rm = TRUE),
+            stdev = sd(egfr, na.rm = TRUE) / sqrt(n() - sum(is.na(egfr)))) %>% 
+  ggplot(aes(x = time, y = avg, color = factor(surgery)))+
+  geom_point()+
+  geom_line()+
+  geom_errorbar(aes(ymin = avg - stdev, ymax = avg + stdev)) +
+  labs(color = "Surgery Type", x = "Time (~months)", y = "Average EGFR")
+
+missing_egfr <- egfr_wide %>% 
+  group_by(surgery) %>% 
+  summarise(na_time_0 = sum(is.na(visit_0)) / n(),
+            na_time_12 = sum(is.na(visit_12)) / n(),
+            na_time_24 = sum(is.na(visit_24)) / n(),
+            na_time_36 = sum(is.na(visit_36)) / n()) %>% 
+  pivot_longer(cols = contains("na_time"),
+               names_to = "time",
+               values_to = "prop_missing") %>% 
+  mutate(time = as.numeric(substr(time, 9, 12))) %>% 
+  ungroup()
+
+avg_egfr <- egfr %>%
+  group_by(surgery, time) %>% 
+  summarise(avg = mean(egfr, na.rm = TRUE)) %>% 
+  ungroup()
+
+avg_and_missing_egfr <- missing_egfr %>% 
+  left_join(avg_egfr, by = c("surgery", "time")) %>%
+  pivot_longer(cols = c("avg", "prop_missing"),
+               names_to = "value_type",
+               values_to = "value")
+
+avg_and_missing_egfr %>% 
+  ggplot(aes(x = time, y = value, color = factor(surgery)))+
+  geom_point()+
+  geom_line()+
+  facet_wrap(~value_type, scales = "free_y")
+
+missing_egfr %>% 
+  left_join(avg_egfr, by = c("surgery", "time")) %>% 
+  ggplot(aes(x = prop_missing, y = avg, color = factor(surgery)))+
+  geom_point()
+```
+
+
+(b)	Describe a 3-level hierarchical clustering model that you choose to address the primary questions and the associated assumptions. Explicitly specify the fixed effects and the random effects, if any, and justify your choices. (25 pts)
+
+The study aimed to investigate if the surgery improves kidney functioning and if the improvement differs between Roux-en-Y gastric bypass (RYGB) surgery and laparoscopic adjustable gastric band (LAGB) surgery. The study was also intended to identify factors associated with improvement in kidney functioning in the first 3 years after bariatric surgery. 
+
+The study is interested in whether or not surgery improves kidney function AND if the improvement differs between RYGB surgery and LAGB surgery. We should therefore estimate the average change within site and subjects given surgery. It was also intended to identify factors associated with improvement in the first 3 years.
+
+Between-site heterogeneity can be modeled by a site-level random intercept
+Between-subject heterogeneity can be modeled by a subject-level random intercept
+
+We are not interested in subject-specific or site-specific effects, so we will not include them as fixed effects.
+
+Example: *If we are interested in estimating clinic effects, we will treat clinics as fixed effects. If we are interested in how treatment affect outcomes differently in different clinic, we will treat
+clinics as fixed effects.* 
+
+**Fixed or Random Effects**
+
+- From a research question point of view:
+    - If we are interested in estimating clinic effects, we will treat clinics as fixed effects.
+    – If we are interested in how treatment affect outcomes differently in different clinic, we will treat
+clinics as fixed effects.
+- From the data structure point of view:
+    – Treat clinic as a random effect if there are many clinics.
+    – If there is a lot of variation within clinics compared to between clinics (e.g., low ICC), treating clinic as a fixed effect is more appropriate.
+    – If we want to estimate the variability between clinics, then treating clinic as a random effect is appropriate. 
+    - Note: a fixed effect model does not estimate the between-clinic variance but controls for it
+- From the bias & variance point of view:
+    – A random effects model assumes that the effects of the clinics come from a normal distribution.
+    – If this assumption holds, a random effects model tends to be more precise than a fixed effects model. 
+- From the computation point of view:
+    – A random effects model is more computationally intensive than a fixed effect model, especially with a
+large dataset, complex hierarchical structures, or a non-normal outcome (generalized linear mixed model [GLMM]). 
+
+- From a research question point of view:
+    - The researchers are not interested in site- or subject-specific effects, so they will be treated as random effects.
+- From the data structure point of view:
+    - There are 6 clinics each with at least 120 subjects each with 4 measurement occasions. Even though some measurement occasions are missing for various subjects. The sample is large enough to consider subjects as a random effect nested in the random effect of clinics.
+    – This might change if there is a lot of variation between subject and between sites compared to between clinics (e.g., low ICC), treating clinic as a fixed effect is more appropriate. Treating sites or subjects as fixed effects does not estimate their variance and controls for their variance.
+- From the bias & variance point of view:
+    – The site specific effects on EGFR appear each approximately normally distributed. However, site 6 has some left skew and outliers low in EGFR
+    - The truth of this assumption means our RE model is more precise than an analagous fixed effects model.
+
+Whether or not surgery, time, and their interaction should have random components can be visually justified with spaghetti plots. Do I want to control for the variance or estimate? If approx site specific
+
+```{r}
+spaghetti_egfr <- egfr %>%
+  group_by(subject) %>%
+  filter(!any(is.na(egfr))) %>% 
+  ungroup()
+
+spaghetti_egfr <- egfr %>% 
+  semi_join(spaghetti_egfr, by = "subject")
+
+spaghetti_egfr %>% 
+  ggplot(aes(x = time, y = egfr, group = subject)) +
+  geom_line()+
+  facet_wrap(~site)
+
+spaghetti_egfr %>% 
+  ggplot(aes(x = time, y = egfr, group = subject)) +
+  geom_line()+
+  facet_wrap(~site)
+
+egfr %>% 
+  ggplot(aes(x = time, y = egfr, group = subject, color = factor(surgery))) +
+  geom_line()+
+  facet_wrap(~site)
+```
+
+It is clear the effect of time varies within subjects and therefore within sites, but this effect appears as though it can be captured by adding a quadratic term given the inverted U shape of some of these lines. 
+
+We are interested in the effect of surgery, so it will be included as a fixed main coefficient We are also interested in whether or not EGFR is consistently better over time for one type of surgery compared to the other, so we will include a fixed interaction coefficient. It is also clear there is a quadratic pattern over time, so we will include a fixed quadratic time coefficient. The effect of surgery does not vary between occasions
+
+There are repeated measurements within subjects and within sites. Therefore, this will be a three-level model. 
+
+- The overall mean EGFR, when `surgery == 1`
+    - $\mathbb{E}\left[Y_{ijk}\right] = \beta_0$. 
+- The mean measurement for site `i`
+    - $\mathbb{E}\left[Y_{ijk}\mid\zeta_i\right] = \beta_0 + \zeta_{0i}$
+- The mean measuremnt for subject `j`
+    - $\mathbb{E}\left[Y_{ijk}\mid\zeta_i, \zeta_{ij}\right] = \beta_0 + \zeta_{0i} + \zeta_{ij}$
+
+- The overall average change in EGFR, given the effect of surgery, holding other covariates constant
+    - $\mathbb{E}\left[Y_{ijk}\mid\ \beta_0, \zeta_{0i}, \zeta_{0ij},\beta_1,\text{surgery}_{ij}\right] = \beta_0 + \zeta_{0i} + \zeta_{0ij} + \beta_1\text{surgery}_{ij}$. 
+- The overall average change in EGFR, given the effect of surgery, holding other covariates constant, for site `i`
+    - $\mathbb{E}\left[Y_{ijk}\mid\beta_0, \zeta_{0i}, \zeta_{0ij},\zeta_{1i},\text{surgery}_{ij}\right] = \beta_0 + \zeta_{0i} + \zeta_{0ij} + \beta_1\text{surgery}_{ij} + \zeta_{1i}\text{surgery}_{ij}$
+- The overall average change in EGFR, given the effect of surgery, holding other covariates constant, for subject `j`
+    - $\Delta{\mathbb{E}\left[Y_{ijk}\mid\beta_0, \zeta_{0i}, \zeta_{0ij},\zeta_{1i}, \zeta_{1ij}, \text{surgery}_{ij}\right]} = \beta_0 + \zeta_{0i} + \zeta_{0ij} + \beta_1\text{surgery}_{ij} + \zeta_{1i}\text{surgery}_{ij} + \zeta_{1ij}\text{surgery}_{ij}$
+    
+- The overall average EGFR, given the effect of time, holding other covariates constant
+    - $\mathbb{E}\left[Y_{ijk}\mid\ \beta_0, \zeta_{0i}, \zeta_{0ij},\beta_2,\text{time}_{ijk}\right] = \beta_0 + \zeta_{0i} + \zeta_{0ij} + \beta_2\text{time}_{ijk}$. 
+- The overall average change in EGFR, given the effect of time, holding other covariates constant, for site `i`
+    - $\mathbb{E}\left[Y_{ijk}\mid\beta_0, \zeta_{0i}, \zeta_{0ij},\beta_2,\zeta_{2i},\text{time}_{ij}\right] = \beta_0 + \zeta_{0i} + \zeta_{0ij} + \beta_2\text{time}_{ijk} + \zeta_{2i}\text{time}_{ijk}$
+- The overall average change in EGFR, given the effect of time, holding other covariates constant, for site `i`
+    - $\mathbb{E}\left[Y_{ijk}\mid\beta_0, \zeta_{0i}, \zeta_{0ij},\zeta_{2i}, \zeta_{2ij}, \text{time}_{ij}\right] = \beta_0 + \zeta_{0i} + \zeta_{0ij} + \beta_2\text{time}_{ijk} + \zeta_{2i}\text{time}_{ijk} + \zeta_{2ij}\text{time}_{ijk}$
+    
+
+
+
+$$
+\text{EGFR}_{ijk} = \beta_0 + \zeta_{0i} + \zeta_{0ij} + \beta_1*\text{surgery}_{ij} + \beta_2*\text{time}_{ijk} + \beta_3*\text{surgery}_{ij}*\text{time}_{ijk} + \beta_4*\text{time}_{ijk}^{2}
+$$
+
+Where: 
+
+ - $\text{i} = \text{Site}$
+ - $\text{j} = \text{Subject}$
+ - $\text{k} = \text{Timepoint}$
+
+Investigators are interested in evaluating whether one type of surgery resulted in greater improvement in eGFR than the other type of surgery, and whether eGFR values were consistently better over time for one type of surgery as compared to the other, assuming that the effects of adjusting covariates on eGFR were equal in different surgery types. Adjusting covariates include age and income level. Note that income level is a time-varying measurement.
+
+```{r}
+egfr_for_lmer <- egfr %>% 
+  mutate(income3 = factor(income3),
+         site = factor(site),
+         subject = factor(subject),
+         surgery = factor(surgery))
+lmer_1 <- egfr_for_lmer %>% lmer(egfr ~ surgery*time + I(time^2) + (1 | subject/site), 
+                                 data = .,
+                                 REML = F)
+lmer_1 %>% summary()
+lmer_1_re <- egfr_for_lmer %>% lmer(egfr ~ surgery*time + I(time^2) + (1 | subject/site), 
+                                 data = .,
+                                 REML = T)
+
+lmer_2 <- egfr_for_lmer %>% lmer(egfr ~ surgery*time + I(time^2) + (1 | site), 
+                                 data = .,
+                                 REML = F)
+
+lmer_2_re <- egfr_for_lmer %>% lmer(egfr ~ surgery*time + I(time^2) + (1 | site), 
+                                 data = .,
+                                 REML = T)
+```
+

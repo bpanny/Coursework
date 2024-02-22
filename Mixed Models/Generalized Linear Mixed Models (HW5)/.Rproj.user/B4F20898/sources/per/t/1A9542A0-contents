@@ -1,0 +1,289 @@
+---
+title: "hw4"
+author: "Benjamin Panny"
+date: "`r Sys.Date()`"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+library(tidyverse)
+library(VIM); library(mice)
+library(gee)
+library(geepack)
+library(geeM)
+library(kableExtra)
+# library(multcomp)
+# library(lmtest)
+# library(sandwich)
+haz <- read_csv("hazdata.csv")
+```
+
+```{r}
+haz %>% count(id)
+```
+
+
+A longitudinal study was conducted to investigate the growth in height of infants through their first 2 years since birth. A total of 200 children were included in this study. The height of each child was measured once every 2 months from birth up to the age of 24 months. In the dataset, each child has up to 13 repeated measurements. The primary outcome of interest here is height-to-age z-score (HAZ) and the primary objective of the study is to examine whether social economic status (SES) groups (low vs high) differ in the rate of change in HAZ. At each visit, a HAZ value of less than -2 was defined as stunting (meaning that the child was growing at a reduced than normal rate). As a secondary objective, the study is also interested to examine whether the low SES group has a higher chance of stunting compared to the high SES group.
+
+
+Dataset hazdata contains the following variables:
+Variable List - Variable Name	Description
+id - Child ID
+ses - Social economic status (1 = High, 0 = Low)
+gender - Gender (1 = male, 0 = female)
+visit - Age (rounded, in months) at each visit/measurement
+haz - Height-to-age z-score	
+stunt	- Whether stunted or not for each visit (1 = stunted, 0 = not stunted)  
+
+The analysis for this assignment is to test the primary objective and is based on the outcome variable “haz.” 
+
+1.	Descriptive statistical analyses. 
+
+(a)	Provide descriptions on the missing data for the variable of height-to-age z-score. (5 pts)
+
+```{r}
+wide_haz <- haz %>%
+  select(id, haz, visit) %>% 
+  group_by(id) %>% 
+  pivot_wider(names_from = "visit",
+              names_prefix = "age",
+              values_from = "haz") %>% 
+  ungroup()
+md.pattern(wide_haz[,2:ncol(wide_haz)])
+haz %>% count(visit)
+haz %>% count(visit, ses) %>% ggplot(aes(x = visit, y = n, fill = factor(ses))) + geom_col() 
+```
+
+3/4 of the dataset has information on `haz` at all 13 visits, then, anywhere from 2-12 participants have monotonic missingness for the last visit, starting all the way up to the second visit. No participants are missing visit == 0. At the same time, there are more participants from the low SES group (and therefore more to dropout) compared to the high SES group.
+
+It seems that there is a steeper drop out over time, especially at the start of the study, of participants from the low SES group compared to the high SES group. 
+
+```{r, fig.width=18}
+wide_haz_low <- haz %>%
+  filter(ses == 0) %>% 
+  select(id, haz, visit) %>% 
+  group_by(id) %>% 
+  pivot_wider(names_from = "visit",
+              names_prefix = "age",
+              values_from = "haz") 
+md.pattern(wide_haz_low[,2:ncol(wide_haz_low)])
+```
+
+
+(b)	Provide adequate descriptive statistics (numerical and graphical) to show the mean trajectories of the height-to-age z score for each of the SES groups. Comment on your findings. Discuss how you will model the time variable. (10 pts)
+
+```{r}
+haz %>%   
+  group_by(ses, visit) %>%
+  summarise_at(vars(haz), list(min=min, 
+                             Q1=~quantile(., probs = 0.25),
+                             median=median, 
+                             Q3=~quantile(., probs = 0.75),
+                             max=max, 
+                             n=~length(.),
+                             mean=mean, 
+                             sd=sd), na.rm = T) %>% 
+  kable() %>% kable_styling()
+
+haz %>%
+  mutate(ses = if_else(ses == 0, "Low", "High")) %>% 
+  group_by(ses, visit) %>% 
+  summarise(avg = mean(haz, na.rm = TRUE),
+            stdev = sd(haz, na.rm = TRUE) / sqrt(n() - sum(is.na(haz)))) %>% 
+  ggplot(aes(x = visit, y = avg, color = factor(ses)))+
+  geom_point()+
+  geom_line()+
+  geom_errorbar(aes(ymin = avg - stdev, ymax = avg + stdev)) +
+  labs(color = "SES", x = "Visit / Age (~months)", y = "Average Height-to-Age Z-Score")
+
+# get confidence intervals instead of just SE
+# traj_y <- schiz_long %>%
+#   group_by(group, week) %>% 
+#   summarise_at(vars(y), list(mean=mean, sd=sd, n=~length(.)), na.rm = TRUE)
+# traj_y <- traj_y %>%
+#   mutate(ci = sd/sqrt(n)*qt(0.975, n-1))
+# traj_y$Group = as.factor(traj_y$group)
+```
+
+It is clear that the mean Height-to-Age Z-Score for children in the Low SES group decreases more rapidly in the first 24 months than for children in the High SES group. Around the Visit/Age of 12 months, there is a clear bend in the originally negative linear trajectory of the mean scores by time. This signals to me to include a quadratic term for time, in an attempt to capture this curvature.
+
+(c)	Give an exploratory assessment on whether the high SES group has a higher value of the height-to-age z score (over time) as compared to the low SES group. (5 pts)
+
+```{r}
+haz %>%
+  mutate(ses = if_else(ses == 0, "Low", "High")) %>%
+  ggplot(aes(x = as.factor(visit), y = haz, fill = as.factor(ses))) +
+  geom_boxplot() +
+  labs(title = "Boxplot of Height-to-Age Z-Score per Visit per SES Status",x = "Visit / Age (Months)", y = "Height-to-age Z-score") +
+  labs(fill = "SES") +
+  theme_classic()
+
+haz %>%
+  mutate(ses = if_else(ses == 0, "Low", "High")) %>%
+  ggplot(aes(x = haz, fill = as.factor(ses))) +
+  geom_density(alpha = .5) +
+  facet_wrap(~visit)+
+  labs(title = "Densities of Height-to-Age Z-Score per Visit per SES Status",x = "Height-to-age Z-score", y = "Height-to-age Z-score Density") +
+  labs(fill = "SES") +
+  theme_classic()
+
+haz %>%
+  mutate(ses = if_else(gender == 0, "Female", "Male")) %>%
+  ggplot(aes(x = haz, fill = as.factor(gender))) +
+  geom_density(alpha = .5) +
+  facet_wrap(~visit)+
+  labs(title = "Densities of Height-to-Age Z-Score per Visit per Gender",x = "Height-to-age Z-score", y = "Height-to-age Z-score Density") +
+  labs(fill = "Gender") +
+  theme_classic()
+```
+
+It was clear from the figure in 1b) that mean `haz` decreases more quickly over time in the Low SES group than in the High SES group. It seems that this pattern holds when displayed in terms of boxplots (median, IQR, +/- 1.5*IQR). This means it is not just a few outliers in the low SES group bringing the mean `haz` downwards more than in the high SES group. It also demonstrates that there is some stunting in the high SES group, but as much as in the low SES group.
+
+We can observe from the densities that `haz`, the z-score, is indeed normalized.
+
+All of these figures motivates the usage of an interaction term between SES and time and main effects of SES/Time (i.e., the main/secondary objectives of the study)
+
+2.	The objective is to assess whether social economic status (SES) groups differ in the rate of change in HAZ, adjusting for SES and gender. 
+
+(a)	Fit an appropriate generalized linear model with the generalized estimating equation (GEE) that you will use to address the primary study question. Explicitly write out your model by specifying the model of the mean structure and the working variance-covariance matrix. State all the assumptions necessary for your model. Additionally, comment on your decision regarding how to treat the time variable and how to handle the within-subject correlations. (24 pts)
+
+Similar to the `schizophrenia` example from class, we have an outcome (`haz`) over time, by an (incidental) treatment (`ses`). Our question is: Do SES groups differ in the rate of change in HAZ, adjusting for SES and gender. 
+
+### Model of mean structure and working variance-covariance matrix
+
+It is clear the outcome (a z-score) is most close to normally distributed. So the link function is the identity function, and the mean structure/function is from the Gaussian family of distributions.
+
+$$
+\mathbb{E}\left[Y\mid X\right] = \mu = X\beta
+$$
+
+### Choice of working correlation
+
+```{r}
+cor(wide_haz[, 2:ncol(wide_haz)], use = "complete.obs") 
+
+cor(wide_haz[, 2:ncol(wide_haz)], use = "complete.obs") %>% corrplot::corrplot(type = "upper", is.corr = FALSE)
+```
+
+It is clear that there is a positive and diminishing autocorrelation across time, from (~1 to ~.71), as the time lag increases. Therefore, I will attempt to use an AR(1) working correlation (variance-covariance) matrix.
+
+This is defined as (for all subjects):
+
+$$
+R_{kh} = \rho^{\left| k - h \right|} \\
+\left| k-h \right| = \text{absolute value of the time lag}
+$$
+
+$\rho$ is the only parameter for the working correlation matrix. Exponentiation by the absolute difference between timepoints indicates the larger the absolute time lag the smaller the autocorrelation.
+
+### Assumptions necessary for my model
+
+- Assumes that the autocorrelations do not drop to zero above any threshold value of the absolute time lag
+- Assumes there are autocorrelations over time and that they decay exponentially as a function of the absolute time lag
+ 
+### Comments on my deicison regarding how to treat time
+
+I treat time as a main effect, an interaction effect with ses, and a quadratic effect. I include the main effect because of the clear trend in the figures in part 1, I include the interaction because of the clear difference in trajectories between SES groups (and the objective of the study). I include the quadratic effect of time because of the non-linear curvature in `haz` trajectory.
+
+### Comments on my decision how to handle within-subject correlations
+
+I choose to handle within-subject correlations as singular autocorrelation that decays with the lag between measurements due to the observed autocorrelation matrix for `haz` showing autocorrelation that decays with larger lags.
+
+```{r}
+fit_gee_ar1 <- geeglm(haz ~ visit*ses + gender + I(visit^2),
+                      data = haz, id = id, family = gaussian, corstr = "ar1")
+summary(fit_gee_ar1)
+```
+
+(b)	Based on the fitted model in part (a), how does HAZ change over the ages? Does this change differ for the different SES groups? Justify your answer. (20 pts)
+
+By the linear age main effect and ses:age interaction effect alone, all individuals show a decrease in `haz` for each unit (month) increase in age, but those with a high SES show a less steep decrease in `haz` for each unit(month) increase in age compared to those with a low SES. Including the effect of quadratic age appears to "dampen" the steepness of the linear/interaction effect of age for each unit increase in quadratic age. This can be observed by looking at expected `haz` for all possible combinations of our variables
+
+```{r}
+expected <- function(visit, ses, gender, visit2, visit_by_ses, coefficients)
+  exp <- coefficients[1] + coefficients[2]*visit + coefficients[3]*ses + 
+  coefficients[4]*gender + coefficients[5]*visit2 + coefficients[6]*visit_by_ses
+
+visit <- seq(0, 24, by=2)
+ses <- c(0, 1)
+gender <- c(0,1)
+cf <- fit_gee_ar1$coefficients %>% as.vector()
+df <- expand.grid(visit = visit, ses = ses, gender = gender) %>%
+  mutate(visit2 = visit^2,
+         visit_by_ses = visit*ses)
+
+(expected_df <- pmap(df, expected, cf) %>% 
+  unlist() %>% 
+  cbind(df, expected_haz = .) %>% 
+  mutate(gender = if_else(gender == 0, "Female", "Male"),
+         ses = if_else(ses == 0, "Low", "High"))) %>% 
+  kableExtra::kable() %>% 
+  kableExtra::kable_styling()
+```
+
+Where each row of each column is multiplied by its corresponding coefficients + the intercept below:
+
+```{r}
+rbind(fit_gee_ar1$coefficients) %>% 
+  kableExtra::kable() %>% 
+  kableExtra::kable_styling()
+```
+
+(c)	Based on the fitted model in part (a), for each SES group, what is the estimated HAZ between age one year versus birth? (6 pts)
+
+We can filter the `expected` df to see the estimated HAZ between age one year and birth for each SES group and for each gender, since we must make a choice about gender since it affected estimated HAZ
+
+```{r}
+expected_df %>%
+  filter(visit %in% c(0,12)) %>% 
+  kable() %>% kable_styling()
+```
+
+We can see that, regardless of gender, the decrease in estimated HAZ from birth to one year is larger for low SES compared to high SES.
+
+(d)	Fit an appropriate covariance pattern model that you will use to address the primary study question. Explicitly write out your model by specifying the model of the mean structure and the model of the variance-covariance matrix. State all the assumptions necessary for your model. (24 pts)
+
+The covariance pattern model for each occasion $j$ for subject $i$ is:
+
+$$
+\text{haz}_{ij} = \beta_0 + \beta_1\text{gender}_{ij} + \beta_2\text{SES}_{ij} + \beta_3\text{age}_{ij} + \beta_4\text{visit}^2_{ij} + \beta_5\left(\text{age}\times \text{SES}\right)_{ij} + \epsilon_{ij}
+$$
+
+The mean structure for each occasion $j$ for subject $i$ is: 
+
+$$
+\mathbb{E}\left[\text{haz}_{ij} \mid x_{ij}\right] = \beta_0 + \beta_1\text{gender}_{ij} + \beta_2\text{SES}_{ij} + \beta_3\text{age}_{ij} + \beta_4\text{visit}^2_{ij} + \beta_5\left(\text{age}\times \text{SES}\right)_{ij} + \epsilon_{ij}
+$$
+
+The model of the variance-covariance structure is:
+
+$$
+R_{ij} = \begin{bmatrix}
+\sigma^2 & \rho & \cdots & \rho^{T-1} \\
+\rho & \sigma^2 & \cdots & \rho^{T-2} \\
+\vdots & \vdots & \ddots & \vdots \\
+\rho^{T-1} & \rho^{T-2} & \cdots & \sigma^2
+\end{bmatrix}
+$$
+
+Where the rows and columns refer to occasions $i$ for subject $j$ and the subject $rho$ changes as an exponential function of time. 
+
+```{r}
+library(nlme)
+# ar1
+fit_gls_ar1 <- gls(haz ~ visit*ses + gender + I(visit^2), correlation = corAR1(form = ~ 1 | id),
+            data = haz, method = "REML", na.action = na.omit)
+summary(fit_gls_ar1)
+```
+
+(e)	Do you the findings of the primary objective change when using the covariance pattern model compared to GEE? (6 pts)
+
+No, they don't, because the coefficients are all virtually the same.
+
+```{r}
+comparison <- cbind(coef(fit_gee_ar1),coef(fit_gls_ar1))
+colnames(comparison) <- c("GEE", "Covariance Pattern")
+comparison %>% kable() %>% kable_styling
+```
+

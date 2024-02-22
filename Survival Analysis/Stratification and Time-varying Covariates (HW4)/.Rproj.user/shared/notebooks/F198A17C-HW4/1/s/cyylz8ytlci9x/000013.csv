@@ -1,0 +1,1 @@
+"0","plot(x = cd4.q.mid, y=c(0,cd4.c.beta), xlab=""cd4"", ylab=""Estimated Log Hazard"",pch=19)"

@@ -1,0 +1,5 @@
+"0","paste(""sample size:"", dat_cdf$cumulative[nrow(dat_cdf)])"
+"1","[1]"
+"1"," ""sample size: 2500"""
+"1","
+"

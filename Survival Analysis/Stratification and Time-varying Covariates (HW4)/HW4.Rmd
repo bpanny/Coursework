@@ -1,0 +1,335 @@
+---
+title: "HW4"
+author: "Benjamin Panny"
+date: "`r Sys.Date()`"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+# Introduction
+
+1.	(60 pts) AIDS Clinical Trials Group (actg300.csv) study. Refer to p12 of our textbook. The data come from a double-blind, placebo-controlled trial that compared the three-drug regimen of indinavir (IDV), open label zidovudine (ZDV) or stavudine (d4T), and lamivudine (3TC) with the two-drug regimen of zidovudine or stavudine and lamivudine in HIV-infected patients (Hammer et al., 1997). Patients were eligible for the trial if they had no more than 200 CD4 cells per cubic millimeter and at least three months of prior zidovudine therapy. Randomization was stratified by CD4 cell count at the time of screening. The primary outcome measure was time to AIDS defining event or death. The primary interested covariate is treatment (whether the three-drug regimen is more effective compared to the two-drug regimen). In this problem, we consider the following covariates:
+
+Variable name	Description	Coding
+
+1. tx	Treatment indicator	1=treatment includes IDV, 0=treatment does not include IDV
+2. sex		1=male, 2=female 
+3. ivdrug	IV drug use history	1=never, 2=currently, 3=previously
+4. karnof	Karnofsky Performance: 
+  4. Scale	100 = Normal; no complaint; no evidence of disease 
+  4. 90 = Normal activity possible; minor signs/symptoms of disease 
+  4. 80 = Normal activity with effort; some signs/symptoms of disease 
+  4. 70 = Cares for self; normal activity/ active work not possible 
+5. CD4	Baseline CD4 count 	cells/milliliter
+6. priorzdv	Months of prior ZDV use	months
+7. age	Age at enrollment	years
+
+```{r}
+library(tidyverse)
+act <- read_csv("actg320.csv")
+names(act) <- tolower(names(act))
+act <- act %>% 
+  select(id, time, censor, tx, sex, ivdrug, karnof, cd4, priorzdv, age) %>% 
+  mutate(sex = factor(if_else(sex == 1, "male", "female")),
+         ivdrug = factor(case_when(
+           ivdrug == 1 ~ "never",
+           ivdrug == 2 ~ "currently",
+           ivdrug == 3 ~ "previously",
+           .default = NA
+         ), levels = c("never", "currently", "previously")),
+         karnof = factor(karnof,levels = c(70, 80, 90, 100)),
+         )
+act
+```
+
+
+Using the purposeful selection method for model building (taught in Chapter 5), develop your best model for evaluating the treatment effect on survival time to AIDS diagnosis or death. This process should include the following steps: 
+•	(main effect) variable selection (15 pts),
+
+step 0: fit all univaraible Cox PH Models
+
+```{r}
+library(survival)
+library(kableExtra)
+fit.1 <- coxph(Surv(time/365.25, censor)~ tx, data=act)
+fit.2 <- coxph(Surv(time/365.25, censor)~ sex, data=act)
+fit.3 <- coxph(Surv(time/365.25, censor)~ ivdrug, data=act)
+fit.4 <- coxph(Surv(time/365.25, censor)~ karnof, data=act)
+fit.5 <- coxph(Surv(time/365.25, censor)~ cd4, data=act)
+fit.6 <- coxph(Surv(time/365.25, censor)~ priorzdv, data=act)
+fit.7 <- coxph(Surv(time/365.25, censor)~ age, data=act)
+sum1 <- summary(fit.1) 
+sum2 <- summary(fit.2) 
+sum3 <- summary(fit.3) 
+sum4 <- summary(fit.4) 
+sum5 <- summary(fit.5) 
+sum6 <- summary(fit.6) 
+sum7 <- summary(fit.7) 
+rbind(sum1$coefficients, sum2$coefficients, sum3$coefficients, sum4$coefficients, sum5$coefficients, sum6$coefficients, sum7$coefficients) %>% kable() %>% kable_styling()
+```
+
+Step 1: Using alpha = 0.2 cutoff for the univariate models, fit multivariable model
+
+```{r}
+fit.mv1 <- coxph(Surv(time/365.25, censor)~ tx + ivdrug + karnof + cd4 + age, data=act)
+sum.mv1 <- summary(fit.mv1)
+sum.mv1
+```
+
+Step 2: Use the p-values from the Wald tests of individual coefficients to identify coefficients to try deleting from the model. Confirm their removal with the partial likelihood ratio test. 
+
+```{r}
+fit.mv2 <- coxph(Surv(time/365.25, censor)~ tx + karnof + cd4, data=act)
+sum.mv2 <- summary(fit.mv2)
+sum.mv2
+anova(fit.mv1, fit.mv2)
+pchisq(2*(fit.mv1$loglik[2]-fit.mv2$loglik[2]), df = 1, lower.tail=F)
+```
+
+The partial likelihood ratio test indicates that fuller model outperforms the simpler model. I'll therefore remove them one by one
+
+```{r}
+fit.mv3 <- coxph(Surv(time/365.25, censor)~ tx + ivdrug + karnof + cd4, data=act)
+sum.mv3 <- summary(fit.mv3)
+fit.mv4 <- coxph(Surv(time/365.25, censor)~ tx + age + karnof + cd4, data=act)
+sum.mv4 <- summary(fit.mv4)
+anova(fit.mv1, fit.mv3)
+anova(fit.mv1, fit.mv4)
+anova(fit.mv3, fit.mv2)
+anova(fit.mv4, fit.mv2)
+```
+
+It appears that removing both age and ivdrug from the full model at once results in a significantly worse log-likelihood, while removing each one at a time from the model, and then again down to the original simpler model, only results in partial likelihood ratio tests that are close to significantly worse, but the corresponding chi-square test statistics are p > 0.05. Therefore, at step 3, I will see if the removal of any has indications of confounding as my criteria for keeping them in the model.
+
+Step 3. Assess whether removal of the covariate in Step 2 has produced an important change (about 20%) in the coefficients of the variables remaining in the model
+
+```{r}
+confound_check <- as_tibble(
+  rbind(
+    sum.mv1$coefficients, sum.mv2$coefficients, sum.mv3$coefficients, sum.mv4$coefficients
+  ) %>% 
+    cbind( 
+      coefficient = c(rownames(sum.mv1$coefficients), rownames(sum.mv2$coefficients), rownames(sum.mv3$coefficients), rownames(sum.mv4$coefficients))
+    ) %>% 
+    cbind(
+      model = c(rep("full", nrow(sum.mv1$coefficients)), rep("no_age_ivdrug", nrow(sum.mv2$coefficients)), rep("no_age", nrow(sum.mv3$coefficients)), rep("no_ivdrug", nrow(sum.mv4$coefficients)))
+    )
+) %>% 
+  mutate(coef = as.numeric(coef),
+         twenty_pct_lwr = ifelse(coef <= 0, 1.2*coef, .8*coef),
+         twenty_pct_upr = ifelse(coef <= 0, .8*coef, 1.2*coef),
+         twenty_pct_lwr = ifelse(model == "full", twenty_pct_lwr, NA),
+         twenty_pct_upr = ifelse(model == "full", twenty_pct_upr, NA)) %>% 
+  group_by(coefficient) %>%
+  fill(twenty_pct_lwr, twenty_pct_upr) %>% 
+  ungroup() %>% 
+  mutate(within_twenty_pct_idx = if_else(between(coef, twenty_pct_lwr, twenty_pct_upr), T, F))
+confound_check %>% filter(!within_twenty_pct_idx)
+```
+
+The only coefficient that moves more than 20% with the absence of another covariate compared to its value in the "full" model is the coefficient for current IV drug use in the absence of age. However, considering that none of the kept variables are significantly confounded, and neither ivdrugs nor age alone are enough to significantly worsen the log likelihood of the model, I will consider this fact irrelevant to my main effects model.
+
+Step 4: Add to the model, one at a time, all the variables excluded from the initial multivariable model to confirm that they are neither statistically significant nor an important confounder. The model at the conclusion of this step: preliminary main effects model
+
+I have already completed this step when removing variables one by one.
+
+Step 5: Examine the scale of the continuous covariates, i.e., test the hypothesis that the effect of the covariate is linear in the log-hazard, and if not, what transformation should be used to make it linear. Method of fractional polynomials (Section 5.2.1)
+
+```{r}
+library(mfp)
+fit.J1 <- mfp(Surv(time/365.25, censor) ~ tx + karnof + fp(cd4, df = 2, select = 0.05),
+               family = cox, data = act)
+
+print(fit.J1)
+```
+
+```{r}
+fit.J2 <- mfp(Surv(time/365.25, censor) ~ tx + karnof + fp(cd4, df = 4, select = 0.05),
+               family = cox, data = act)
+print(fit.J2)
+```
+
+```{r}
+summary(fit.J1); summary(fit.J2)
+```
+
+Giving the multivariable fractional polynomial more degrees of freedom does not influence the final covariate transformation used for CD4.
+
+```{r}
+summary(fit.J1)
+summary(fit.mv2)
+act %>% ggplot(aes(x = (cd4 + .2)/100)) + geom_histogram()
+```
+
+•	choice of transformation forms for the continuous variables (15 pts), 
+
+The covariate transformation for CD4 appears to be that of relocating and scaling its values. This results in a scaled version of its coefficient without improving explanatory power of the model. Since this transformation doesn't improve model fit, increases model complexity, and muddies interpretation. I will use the original simplified model from which to select interactions
+
+Step 6: Determine whether interaction terms are needed, as the product of two covariates, in the model. All interaction terms should be statistically significant at significance level of such as 1 or 5 percent.All main effects of significant interactions should remain in the model. If an insignificant interaction term is included in the model, then standard error estimates will needlessly increase, thus unnecessarily widening confidence intervals of HRs
+
+```{r}
+fit.int1 <- coxph(formula = Surv(time/365.25, censor) ~ tx*karnof + tx*cd4 + karnof*cd4, 
+    data = act)
+summary(fit.int1)
+fit.int2 <- coxph(formula = Surv(time/365.25, censor) ~ tx*karnof + tx*cd4, 
+    data = act)
+summary(fit.int2)
+fit.int3 <- coxph(formula = Surv(time/365.25, censor) ~ tx*karnof + cd4, 
+    data = act)
+summary(fit.int3)
+```
+
+•	selection of interactions (15 pts). 
+
+None of the possible interactions are statistically significant.
+
+Therefore, my final model is:
+
+$$
+\begin{equation}
+h(t|X) = h_{0}(t) \exp(\beta_{1} \cdot tx + \beta_{2} \cdot karnof + \beta_{3} \cdot cd4)
+\end{equation}
+$$
+
+
+
+•	Finally, interpret your findings regarding the treatment effects from your final model (15 pts, need to provide statistics such as hazard ratio estimates, 95% CIs, p-values, etc., to support your explanation). 
+
+```{r}
+sum.mv2
+```
+
+The effect of treatment has a hazard ratio of 0.52 with no-treatment with 95% CI [.343, .8], indicating treatment lowers the hazard rate compared to no-treatment by 47.6% (given by exp(coef) for treatment) with the equivalent 95% CI [20%, 65.7%]. This effect is statistically significant, indicated by a Wald test statistic significantly unlikely to come from the null Z-distribution (under which the assumption is that the hazard rate is equivalent between two and three-drug regimens), as well as the fact that the 95% CI, which should capture the true hazard ratio 95% of the time if we follow the same procedures and our assumptions are correct, which does not contain zero on this occassion.
+
+Please include your key program codes and supporting outputs. You are welcome to use plots to help your model development as well as your model interpretation.
+
+2.	(40 pts) For the final model you chose in problem 1, assess the model fit, which should include the following steps: 
+
+$$
+\begin{equation}
+h(t|X) = h_{0}(t) \exp(\beta_{1} \cdot tx + \beta_{2} \cdot karnof + \beta_{3} \cdot cd4)
+\end{equation}
+$$
+
+•	evaluation of the proportional hazards assumption for each main effect (10 pts), 
+
+This can be accomplished via categorical quantiles indicators for the continuous variables and plots of the categorical variables.
+
+```{r}
+# compute quartile and each mid-point
+cd4.q <- quantile(act$cd4)
+cd4.q.diff <- cd4.q[-1] - cd4.q[-5]
+cd4.q.mid <- cd4.q[-5] + 0.5*cd4.q.diff
+cd4.q.mid <- c(cd4.q.mid[1],cd4.q.mid[-1]+0.5)
+act$cd4.c<-cut(act$cd4,cd4.q)
+
+fit.cd4.c <- coxph(Surv(time/365.25, censor)~ cd4.c + tx + karnof, data = act)
+fit.cd4.c
+
+cd4.c.beta <- fit.cd4.c$coeff[1:3]
+
+# Plot to examine the linearity assumption
+plot(x = cd4.q.mid, y=c(0,cd4.c.beta), xlab="cd4", ylab="Estimated Log Hazard",pch=19)
+lines(x = cd4.q.mid, y=c(0,cd4.c.beta),lty=1)
+```
+
+It seems as though not including the cd4 variable transformation may have violated the linearity assumption, so I will try testing the assumption with the transformation
+
+I do not test the linearity assumption for the categorical variables because they only have 1 value, which will always be linear with 0. 
+
+•	examination of the functional (transformation) form of each continuous variable being included in the model (10 pts),  
+
+I will try testing the assumption with the transformation given previously
+
+```{r}
+act$cd4.mfp <- (act$cd4 + 0.2)/100
+# compute quartile and each mid-point
+cd4.mfp.q <- quantile(act$cd4.mfp)
+cd4.mfp.q.diff <- cd4.mfp.q[-1] - cd4.mfp.q[-5]
+cd4.mfp.q.mid <- cd4.mfp.q[-5] + 0.5*cd4.mfp.q.diff
+cd4.mfp.q.mid <- c(cd4.mfp.q.mid[1],cd4.mfp.q.mid[-1]+0.5)
+act$cd4.mfp.c<-cut(act$cd4.mfp,cd4.mfp.q)
+
+fit.cd4.mfp.c <- coxph(Surv(time/365.25, censor)~ cd4.mfp.c + tx + karnof, data = act)
+fit.cd4.mfp.c
+
+cd4.mfp.c.beta <- fit.cd4.mfp.c$coeff[1:3]
+
+# Plot to examine the linearity assumption
+plot(x = cd4.mfp.q.mid, y=c(0,cd4.mfp.c.beta), xlab="cd4.mfp", ylab="Estimated Log Hazard",pch=19)
+lines(x = cd4.mfp.q.mid, y=c(0,cd4.mfp.c.beta),lty=1)
+plot(x = cd4.q.mid, y=c(0,cd4.c.beta), xlab="cd4", ylab="Estimated Log Hazard",pch=19)
+lines(x = cd4.q.mid, y=c(0,cd4.c.beta),lty=1)
+```
+
+The transformed cd4 covariate appears to be slightly more linear than the untransformed form. As I mentioned before, the cd4 transform involves a small location shift and scaling by .01.
+
+•	identification of influential subjects, if any (10 pts), and 
+
+```{r}
+## Scaled score residual -- use type="dfbeta"
+score.r<-resid(fit.J1,type="dfbeta")
+par(mfrow=c(3,2))
+dev.off()
+influentials <- tibble(cd4.mfp = act$cd4.mfp, 
+                       karnof = act$karnof, 
+                       tx = act$tx,
+                       id = act$id,
+                       cd4.inf = score.r[,1],
+                       karnof80.inf = score.r[,2],
+                       karnof90.inf = score.r[,3],
+                       karnof100.inf = score.r[,4],
+                       tx.inf = score.r[,5])
+
+influentials %>% 
+  ggplot(aes(x = cd4.mfp, y = cd4.inf, label = id)) +
+  geom_point() +
+  geom_label() +
+  labs(x = 'cd4', y = 'cd4 influence')
+
+influentials %>% 
+  ggplot(aes(x = karnof, y = karnof80.inf, label = id)) +
+  geom_point() +
+  geom_label() +
+  labs(x = 'karnof', y = 'karnof80 influence')
+
+influentials %>% 
+  ggplot(aes(x = karnof, y = karnof90.inf, label = id)) +
+  geom_point() +
+  geom_label() +
+  labs(x = 'karnof', y = 'karnof90 influence')
+
+influentials %>% 
+  ggplot(aes(x = karnof, y = karnof100.inf, label = id)) +
+  geom_point() +
+  geom_label() +
+  labs(x = 'karnof', y = 'karnof100 influence')
+
+influentials %>% 
+  ggplot(aes(x = tx, y = tx.inf, label = id)) +
+  geom_point() +
+  geom_label() +
+  labs(x = 'tx', y = 'tx influence')
+```
+
+853 and 967 appear highly influential with regards to the cd4 coefficient. 929 and other subjects appear influential on karnofsky scores. None of the subjects appear highly influential over the tx coefficient.
+
+•	overall model fit assessment (10pts).
+
+As discussed for the previous question, the final model had equivalent performance to the other models including the "full" set of covariates, with a caveat. It's performance was statistically equivalent to models that add age and ivdrug indepdendently, but statistically significantly worse compared to the "full" model. Taking these two facts together. I consider the statistically significant difference betwen the 'full' model and my final model to be a consequence of the fact that likelihoods always improve when more and more covariates are added to the model as opposed to the 'full' model having more explanatory power as a virtue of true relationships. Model fit can also be assessed with Cox-Snell residuals.
+
+```{r}
+coxsnell.r <- act$censor-resid(fit.J1,type="martingale")
+
+fitres <- survfit(Surv(coxsnell.r, act$censor)~1)
+
+plot(fitres$time,-log(fitres$surv),type='s',xlab='Cox-Snell Residuals', 
+     ylab='Estimated Cumulative Hazard Function')
+abline(0,1,col='red',lty=2)
+```
+
+The model appears well fit according to the Cox-Snell Residuals because the residuals appear to match up with a unit exponential cumulative hazard function, which is what we expect to see if the Cox model is valid and the coefficients and estimate baseline hazard cumulative hazard function are close to their true values.
+
